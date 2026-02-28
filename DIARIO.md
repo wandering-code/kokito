@@ -1,5 +1,12 @@
 # Diario de desarrollo — Kokito
 
+## Inicio rápido
+cd ~/repos/kokito
+source venv/bin/activate
+docker compose up   # cuando necesites levantar los contenedores
+
+---
+
 ## Sesión 1 — Entorno y prototipo local (Fase 1 completa)
 
 ### Lo que hemos construido
