@@ -1,9 +1,9 @@
 # Diario de desarrollo — Kokito
 
 ## Inicio rápido
-cd ~/repos/kokito
-source venv/bin/activate
-docker compose up   # cuando necesites levantar los contenedores
+- cd ~/repos/kokito
+- source venv/bin/activate
+- docker compose up   # cuando necesites levantar los contenedores
 
 ---
 
