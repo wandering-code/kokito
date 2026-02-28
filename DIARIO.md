@@ -1,6 +1,6 @@
 # Diario de desarrollo — Kokito
 
-## Sesión 1 — Entorno y prototipo local
+## Sesión 1 — Entorno y prototipo local (Fase 1 completa)
 
 ### Lo que hemos construido
 
@@ -8,6 +8,8 @@
 - Repositorio `kokito` en GitHub conectado por **SSH**
 - **Entorno virtual** configurado en la carpeta del proyecto
 - **Prototipo funcional**: PDF → texto → MP3 en ~20 líneas de Python
+- **Preprocesado básico** del texto para mejorar la entonación del TTS
+- **Dockerfile** y **docker-compose.yml** para ejecutar el backend en un contenedor
 
 ---
 
@@ -113,8 +115,9 @@ OUTPUT_FILE = "test.mp3"
 
 with pdfplumber.open("./ejemplo.pdf") as pdf:
     for page in pdf.pages:
-        TEXT = page.extract_text()
-        print(page.extract_text())
+        TEXT = page.extract_text().replace("\n", " ")
+        print(repr(page.extract_text()))  # Para ver caracteres especiales crudos
+        print(TEXT)
 
 async def amain() -> None:
     communicate = edge_tts.Communicate(TEXT, VOICE)
@@ -129,13 +132,83 @@ if __name__ == "__main__":
 - `-> None` es una **type hint** (anotación de tipo). Equivalente a `void` en Java. Python no la valida en ejecución, pero VS Code la usa para avisar de errores. Otros tipos: `-> str`, `-> int`, `-> float`, `-> bool`, `-> list`, `-> dict`.
 - `if __name__ == "__main__"` — el código dentro solo se ejecuta cuando el archivo se lanza directamente, no cuando se importa desde otro módulo. Equivalente al `main()` de Java.
 - `async/await` en Python funciona igual que en JavaScript. Para ejecutar una función `async` desde código síncrono se usa `asyncio.run()`.
+- `repr()` muestra los caracteres especiales visibles en un string (útil para depurar).
+- Comentar varias líneas en VS Code: seleccionar y pulsar `Cmd + /`.
+
+**Decisión de diseño — preprocesado de texto:**
+Se optó por un replace simple de `\n` por espacio. Una solución más elaborada (detectar párrafos, títulos en mayúsculas, etc.) se deja para fases posteriores cuando el preprocesado sea el foco.
 
 ---
 
-### Próximos pasos (Fase 1 pendiente)
+#### 5. Docker
 
-- Preprocesar el texto extraído del PDF para eliminar saltos de línea innecesarios y mejorar la entonación del TTS
-- Introducción a Docker: qué es un contenedor y por qué lo usaremos
+**Concepto clave — contenedor:** caja aislada que incluye el código, el runtime y las librerías necesarias para ejecutar un servicio. Más ligero que una máquina virtual. Los contenedores son **efímeros** — todo lo que se genera dentro desaparece al parar el contenedor, salvo que se use un volumen.
+
+**Concepto clave — volumen:** carpeta de la máquina local montada dentro del contenedor para persistir archivos.
+
+**Estructura del proyecto:**
+
+```
+kokito/
+├── backend/
+│   ├── kokito.py
+│   ├── ejemplo.pdf
+│   ├── requirements.txt
+│   └── Dockerfile
+├── docker-compose.yml
+├── .gitignore
+└── DIARIO.md
+```
+
+**`backend/requirements.txt`** — generado con:
+
+```bash
+pip freeze > backend/requirements.txt
+```
+
+**`backend/Dockerfile`:**
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . /app/
+CMD ["python", "kokito.py"]
+```
+
+- `FROM` — imagen base (sistema operativo + runtime)
+- `WORKDIR` — carpeta de trabajo dentro del contenedor
+- `COPY` — copia archivos del Mac al contenedor
+- `RUN` — ejecuta un comando durante la construcción de la imagen
+- `CMD` — comando que se ejecuta cuando el contenedor arranca
+
+**`docker-compose.yml`:**
+
+```yaml
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+```
+
+**Comandos Docker:**
+
+```bash
+docker build -t kokito-backend ./backend       # Construir imagen manualmente
+docker run -v $(pwd)/backend:/app kokito-backend  # Ejecutar con volumen
+docker compose up    # Levantar todos los servicios
+docker compose down  # Parar todos los servicios
+```
+
+---
+
+### Próximos pasos (Fase 2)
+
+- Introducción a FastAPI
+- Crear endpoint para subir un PDF y devolver un MP3
+- Gestión de errores y validaciones básicas
 
 ### Stack definido para el proyecto
 
