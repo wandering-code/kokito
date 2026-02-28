@@ -9,3 +9,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# .mp3 generados por Kokito
+*.mp3
