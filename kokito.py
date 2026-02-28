@@ -8,8 +8,9 @@ OUTPUT_FILE = "test.mp3"
 
 with pdfplumber.open("./ejemplo.pdf") as pdf:
     for page in pdf.pages:
-        TEXT_FIRST_PAGE = page.extract_text()
-        print(page.extract_text())
+        print("Texto crudo" + repr(page.extract_text()))
+        TEXT_FIRST_PAGE = page.extract_text().replace("\n", " ")
+        print(TEXT_FIRST_PAGE)
 
 async def amain() -> None:
     communicate = edge_tts.Communicate(TEXT_FIRST_PAGE, VOICE)
