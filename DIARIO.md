@@ -111,6 +111,30 @@ ssh -T git@github.com
 # Hi wandering-code! You've successfully authenticated...
 ```
 
+**Problema — clave SSH no persistente:** el agente SSH vive en memoria y pierde las claves al cerrar el Mac o abrir una terminal nueva, lo que provoca `Permission denied (publickey)` al hacer `git push`. Solución: configurar macOS para que recuerde la clave automáticamente.
+
+Añadir al bloque de GitHub en `~/.ssh/config`:
+
+```
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/ssh-key-github
+  UseKeychain yes
+  AddKeysToAgent yes
+```
+
+- `UseKeychain yes` — macOS guarda la passphrase en el Keychain del sistema
+- `AddKeysToAgent yes` — añade la clave al agente automáticamente al arrancar la terminal
+
+Ejecutar una vez para registrarla en el Keychain:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/ssh-key-github
+```
+
+A partir de ahí no es necesario volver a ejecutar `ssh-add` manualmente.
+
 Primer commit con `.gitignore` básico (incluye `venv/`, `.env`, `__pycache__/`, `*.pyc`, `.DS_Store`, `*.mp3`).
 
 ---
