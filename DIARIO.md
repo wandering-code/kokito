@@ -1,9 +1,36 @@
 # Diario de desarrollo — Kokito
 
 ## Inicio rápido
-- cd ~/repos/kokito
-- source venv/bin/activate
-- docker compose up   # cuando necesites levantar los contenedores
+
+### Preparación del entorno
+```bash
+cd ~/repos/kokito
+source venv/bin/activate
+```
+
+### Levantar el servidor
+```bash
+cd backend
+uvicorn main:app --reload
+```
+Parar el servidor: `Ctrl + C` en la terminal donde está corriendo.
+
+### Docker (cuando sea necesario)
+```bash
+docker compose up    # Levantar todos los servicios
+docker compose down  # Parar todos los servicios
+```
+
+### Comandos git del día a día
+```bash
+git status                        # Ver qué archivos han cambiado
+git add .                         # Añadir todos los cambios al stage
+git add nombre_archivo            # Añadir un archivo concreto
+git commit -m "mensaje del commit" # Guardar los cambios con un mensaje
+git push                          # Subir los commits a GitHub
+git log --oneline                 # Ver el historial de commits resumido
+git diff                          # Ver los cambios no añadidos al stage
+```
 
 ---
 
@@ -203,19 +230,13 @@ services:
 **Comandos Docker:**
 
 ```bash
-docker build -t kokito-backend ./backend       # Construir imagen manualmente
+docker build -t kokito-backend ./backend          # Construir imagen manualmente
 docker run -v $(pwd)/backend:/app kokito-backend  # Ejecutar con volumen
 docker compose up    # Levantar todos los servicios
 docker compose down  # Parar todos los servicios
 ```
 
 ---
-
-### Próximos pasos (Fase 2)
-
-- Introducción a FastAPI
-- Crear endpoint para subir un PDF y devolver un MP3
-- Gestión de errores y validaciones básicas
 
 ### Stack definido para el proyecto
 
@@ -230,3 +251,123 @@ docker compose down  # Parar todos los servicios
 | Contenedores | Docker + Docker Compose |
 | Deploy | Render/Railway (backend) + Vercel (frontend) |
 | Almacenamiento | Local en desarrollo, Cloudflare R2 en producción |
+
+---
+
+## Sesión 2 — Backend con API REST (Fase 2 completa)
+
+### Lo que hemos construido
+
+- **API REST funcional** con FastAPI y Uvicorn
+- **Endpoint `GET /health_check`** para verificar que el servicio está activo
+- **Endpoint `POST /convertir`** que recibe un PDF y devuelve un MP3
+- **Swagger UI** disponible automáticamente en `/docs`
+- La lógica del prototipo `kokito.py` integrada dentro de la API
+
+---
+
+### Pasos realizados
+
+#### 1. Instalación de librerías
+
+```bash
+pip install fastapi uvicorn python-multipart
+pip freeze > backend/requirements.txt
+```
+
+- `fastapi` — el framework para construir la API
+- `uvicorn` — el servidor ASGI que ejecuta FastAPI
+- `python-multipart` — necesario para recibir archivos (`multipart/form-data`). FastAPI lo requiere pero no lo incluye por defecto — sin él lanza un `RuntimeError` al arrancar cualquier endpoint con `UploadFile`
+
+**Recordatorio:** cada vez que se instale una librería nueva, actualizar el `requirements.txt` con `pip freeze > backend/requirements.txt`.
+
+---
+
+#### 2. Conceptos clave — API REST
+
+Una API REST es un servidor que escucha peticiones HTTP y devuelve respuestas. Tiene **endpoints** — URLs que hacen cosas concretas. El verbo HTTP indica la intención:
+
+- `GET` — consulta, sin efectos secundarios
+- `POST` — envía datos al servidor para que los procese o cree algo
+- `PUT` / `PATCH` — actualiza
+- `DELETE` — borra
+
+El endpoint de conversión usa `POST` porque implica enviar un archivo y pedir al servidor que lo procese.
+
+---
+
+#### 3. Conceptos clave — FastAPI
+
+FastAPI usa **decoradores** para definir endpoints. Son equivalentes a las anotaciones de Spring Boot en Java (`@GetMapping`, `@PostMapping`).
+
+```python
+@app.get("/ruta")
+def mi_funcion():
+    return {"clave": "valor"}
+```
+
+FastAPI convierte automáticamente los diccionarios Python a JSON. No hace falta configuración adicional.
+
+**Swagger UI** se genera automáticamente en `/docs` sin ninguna configuración extra. Permite probar los endpoints directamente desde el navegador.
+
+---
+
+#### 4. main.py — código final
+
+```python
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
+import pdfplumber, edge_tts, tempfile
+
+app = FastAPI()
+VOICE = "es-ES-AlvaroNeural"
+
+@app.get("/health_check")
+def health_check():
+    return {"mensaje": "Servicio Api REST activo"}
+
+@app.post("/convertir")
+async def convertir(pdf: UploadFile = File(...)):
+    with pdfplumber.open(pdf.file) as file:
+        text = ""
+        for page in file.pages:
+            text += page.extract_text()
+
+    if text:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        communicate = edge_tts.Communicate(text, VOICE)
+        await communicate.save(tmp_path)
+        return FileResponse(tmp_path, media_type="audio/mpeg", filename="kokito.mp3")
+    else:
+        return {"mensaje": "El archivo PDF está vacío"}
+```
+
+**Conceptos clave aprendidos:**
+
+- `UploadFile` — clase de FastAPI que representa un archivo subido via HTTP. Su atributo `.file` es un objeto de tipo fichero compatible con `pdfplumber.open()`.
+- `File(...)` — indica que el parámetro es obligatorio. Los `...` en Python significan "requerido". Si no se envía el archivo, FastAPI devuelve un error 422 automáticamente.
+- `multipart/form-data` — formato HTTP en el que viajan los archivos subidos desde formularios o clientes HTTP.
+- `tempfile.NamedTemporaryFile` — crea un archivo temporal en disco con nombre único. `delete=False` evita que se borre al cerrar el bloque `with`, porque lo necesitamos para devolverlo. El sistema operativo lo elimina después de enviarlo.
+- `FileResponse` — devuelve un archivo en disco como respuesta HTTP. `media_type="audio/mpeg"` indica al cliente que es un MP3.
+- El `return FileResponse` va **fuera** del bloque `with tempfile` pero dentro del `if text`, porque FastAPI necesita que el archivo siga existiendo cuando lo envía.
+
+---
+
+#### 5. Error encontrado — puerto en uso
+
+Si uvicorn no se cierra correctamente y el puerto 8000 queda ocupado:
+
+```bash
+lsof -ti:8000 | xargs kill -9   # Matar el proceso que ocupa el puerto
+```
+
+La forma correcta de parar el servidor es siempre `Ctrl + C` en la terminal.
+
+---
+
+### Próximos pasos (Fase 3)
+
+- Introducción a PostgreSQL
+- Modelado de tablas: conversiones
+- Conectar FastAPI con la base de datos via SQLAlchemy
