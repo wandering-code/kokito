@@ -390,8 +390,187 @@ La forma correcta de parar el servidor es siempre `Ctrl + C` en la terminal.
 
 ---
 
-### Próximos pasos (Fase 3)
+## Sesión 3 — Base de datos con PostgreSQL y SQLAlchemy (Fase 3 completa)
 
-- Introducción a PostgreSQL
-- Modelado de tablas: conversiones
-- Conectar FastAPI con la base de datos via SQLAlchemy
+### Lo que hemos construido
+
+- **PostgreSQL** corriendo en Docker como servicio independiente
+- **Modelo `Conversion`** con SQLAlchemy que mapea a la tabla `conversiones`
+- **`database.py`** con la configuración de conexión, el modelo y la función de inicialización
+- **Endpoint `/convertir` actualizado** para guardar un registro en la base de datos en cada conversión
+- Verificación de registros desde **DBeaver**
+
+---
+
+### Pasos realizados
+
+#### 1. PostgreSQL en Docker Compose
+
+Se amplió el `docker-compose.yml` para añadir un servicio `db`:
+
+```yaml
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://kokito:kokito@db:5432/kokito
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: kokito
+      POSTGRES_PASSWORD: kokito
+      POSTGRES_DB: kokito
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+**Conceptos clave:**
+
+- `depends_on` — garantiza que Docker arranque `db` antes que `backend`
+- `volumes: postgres_data:` a nivel raíz — volumen con nombre gestionado por Docker. A diferencia de un volumen de carpeta local, persiste aunque se haga `docker compose down`
+- `environment` en el backend — pasa la `DATABASE_URL` como variable de entorno para que `database.py` la lea con `os.getenv()`
+
+Verificación de que Postgres está activo:
+
+```bash
+docker compose exec db psql -U kokito -d kokito
+# Prompt kokito=# indica conexión correcta
+# Salir con \q
+```
+
+---
+
+#### 2. Instalación de librerías
+
+```bash
+pip install sqlalchemy psycopg2-binary
+pip freeze > backend/requirements.txt
+```
+
+- `sqlalchemy` — ORM que permite definir tablas como clases Python y hacer queries sin SQL crudo
+- `psycopg2-binary` — driver que SQLAlchemy usa internamente para conectarse a PostgreSQL
+
+---
+
+#### 3. backend/database.py
+
+```python
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime, timezone
+import os
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kokito:kokito@localhost:5432/kokito")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class Conversion(Base):
+    __tablename__ = "conversiones"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    nombre     = Column(String, nullable=False)
+    caracteres = Column(Integer)
+    creado_en  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+def crear_tablas():
+    Base.metadata.create_all(bind=engine)
+```
+
+**Conceptos clave:**
+
+- `engine` — gestiona el pool de conexiones a la base de datos. Recibe la URL de conexión
+- `SessionLocal` — factoría de sesiones. Cada petición HTTP abre una sesión, opera, y la cierra
+- `Base` — clase de la que heredan todos los modelos. SQLAlchemy la usa para saber qué tablas crear
+- `Base.metadata.create_all()` — crea las tablas que falten. Si ya existen, no las toca
+- `os.getenv("DATABASE_URL", "...")` — lee la variable de entorno; si no existe, usa el valor por defecto (útil para desarrollo local sin Docker)
+
+---
+
+#### 4. backend/main.py — versión final
+
+```python
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
+import pdfplumber, edge_tts, tempfile
+from database import SessionLocal, Conversion, crear_tablas
+
+app = FastAPI()
+VOICE = "es-ES-AlvaroNeural"
+
+@app.on_event("startup")
+def startup():
+    crear_tablas()
+
+@app.get("/health_check")
+def health_check():
+    return {"mensaje": "Servicio Api REST activo"}
+
+@app.post("/convertir")
+async def convertir(pdf: UploadFile = File(...)):
+    with pdfplumber.open(pdf.file) as file:
+        text = ""
+        for page in file.pages:
+            text += page.extract_text()
+
+    if text:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        communicate = edge_tts.Communicate(text, VOICE)
+        await communicate.save(tmp_path)
+
+        db = SessionLocal()
+        conversion = Conversion(nombre=pdf.filename, caracteres=len(text))
+        db.add(conversion)
+        db.commit()
+        db.close()
+
+        return FileResponse(tmp_path, media_type="audio/mpeg", filename="kokito.mp3")
+    else:
+        return {"mensaje": "El archivo PDF está vacío"}
+```
+
+**Conceptos clave:**
+
+- `@app.on_event("startup")` — ejecuta una función al arrancar el servidor. Se usa para crear las tablas automáticamente si no existen
+- `db.add(conversion)` — prepara el objeto para insertar (no escribe nada todavía)
+- `db.commit()` — ejecuta el INSERT en la base de datos
+- `db.close()` — cierra la sesión. Imprescindible para no agotar el pool de conexiones
+
+---
+
+#### 5. Error encontrado — uvicorn no encuentra main.py
+
+Lanzar uvicorn desde la raíz del proyecto en lugar de desde `backend/` provoca `Could not import module "main"`. Solución: entrar siempre en `backend/` antes de lanzar el servidor.
+
+```bash
+cd backend
+uvicorn main:app --reload
+```
+
+---
+
+#### 6. Conexión desde DBeaver
+
+Datos de conexión:
+
+| Campo | Valor |
+|---|---|
+| Host | localhost |
+| Puerto | 5432 |
+| Base de datos | kokito |
+| Usuario | kokito |
+| Contraseña | kokito |
+
+Requiere tener `docker compose up` activo. Permite inspeccionar la tabla `conversiones` y verificar que cada conversión queda registrada correctamente.

@@ -20,10 +20,13 @@ pdfminer.six==20251230
 pdfplumber==0.11.9
 pillow==12.1.1
 propcache==0.4.1
+psycopg2-binary==2.9.11
 pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 pypdfium2==5.5.0
+python-multipart==0.0.22
+SQLAlchemy==2.0.48
 starlette==0.52.1
 tabulate==0.9.0
 typing-inspection==0.4.2
