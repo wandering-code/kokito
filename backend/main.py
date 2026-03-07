@@ -1,10 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
-import pdfplumber, edge_tts, tempfile
-from database import SessionLocal, Conversion, crear_tablas
+from celery.result import AsyncResult
+from tasks import convertir_pdf
+from celery_app import celery_app
+from database import crear_tablas
 
 app = FastAPI()
-VOICE = "es-ES-AlvaroNeural"
 
 @app.on_event("startup")
 def startup():
@@ -16,23 +17,17 @@ def health_check():
 
 @app.post("/convertir")
 async def convertir(pdf: UploadFile = File(...)):
-    with pdfplumber.open(pdf.file) as file:
-        text = ""
-        for page in file.pages:
-            text += page.extract_text()
+    pdf_bytes = await pdf.read()
+    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename)
+    return {"tarea_id": tarea.id}
 
-    if text:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp_path = tmp.name
-        communicate = edge_tts.Communicate(text, VOICE)
-        await communicate.save(tmp_path)
+@app.get("/resultado/{tarea_id}")
+def resultado(tarea_id: str):
+    tarea = AsyncResult(tarea_id, app=celery_app)
 
-        db = SessionLocal()
-        conversion = Conversion(nombre=pdf.filename, caracteres=len(text))
-        db.add(conversion)
-        db.commit()
-        db.close()
-
-        return FileResponse(tmp_path, media_type="audio/mpeg", filename="kokito.mp3")
-    else:
-        return {"mensaje": "El archivo PDF está vacío"}
+    if tarea.state == "PENDING":
+        return {"estado": "pendiente"}
+    elif tarea.state == "SUCCESS":
+        return FileResponse(tarea.result, media_type="audio/mpeg", filename="kokito.mp3")
+    elif tarea.state == "FAILURE":
+        return {"estado": "error", "detalle": str(tarea.result)}

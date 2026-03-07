@@ -574,3 +574,222 @@ Datos de conexión:
 | Contraseña | kokito |
 
 Requiere tener `docker compose up` activo. Permite inspeccionar la tabla `conversiones` y verificar que cada conversión queda registrada correctamente.
+
+## Sesión 4 — Tareas asíncronas con Celery + Redis (Fase 4 completa)
+
+### Lo que hemos construido
+
+- **Redis** corriendo en Docker como servicio de cola
+- **Celery** configurado con worker independiente
+- **`celery_app.py`** con la instancia y configuración de Celery
+- **`tasks.py`** con la lógica de conversión extraída de `main.py`
+- **Endpoint `/convertir` actualizado** — devuelve un `tarea_id` inmediatamente sin bloquear
+- **Endpoint `/resultado/{tarea_id}`** — consulta el estado y devuelve el MP3 cuando está listo
+- **Volumen compartido `mp3_data`** entre worker y backend para compartir los archivos generados
+- **`docker compose up`** levanta los cuatro servicios de golpe sin comandos adicionales
+
+---
+
+### Arquitectura resultante
+```
+Cliente → POST /convertir → FastAPI → Redis (cola) → Celery worker → genera MP3
+Cliente → GET /resultado/{id} → FastAPI → Redis (resultado) → devuelve MP3
+```
+```
+docker compose up levanta:
+  - db       → PostgreSQL
+  - redis    → cola de tareas
+  - backend  → FastAPI + uvicorn
+  - worker   → Celery
+```
+
+---
+
+### Pasos realizados
+
+#### 1. Redis en Docker Compose
+
+Se añadió el servicio `redis` y la variable de entorno `CELERY_BROKER_URL` al backend:
+```yaml
+redis:
+  image: redis:7
+  ports:
+    - "6379:6379"
+```
+
+- `redis://redis:6379/0` — URL de conexión. El `0` es el número de base de datos dentro de Redis (admite hasta 16, usamos la 0 por defecto)
+
+---
+
+#### 2. backend/celery_app.py
+```python
+from celery import Celery
+import os
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+celery_app = Celery(
+    "kokito",
+    broker=CELERY_BROKER_URL,
+    backend=CELERY_BROKER_URL,
+    include=["tasks"]
+)
+
+celery_app.conf.update(
+    result_backend=CELERY_BROKER_URL
+)
+```
+
+- `broker` — dónde Celery manda las tareas (Redis como buzón de entrada)
+- `backend` — dónde Celery guarda los resultados para consultarlos después
+- `include=["tasks"]` — indica a Celery qué módulos contienen tareas. Sin esto el worker arranca pero no registra ninguna tarea y las descarta con `KeyError`
+- `result_backend` en `conf.update` — necesario para que `AsyncResult` pueda consultar estados desde FastAPI
+
+---
+
+#### 3. backend/tasks.py
+```python
+from celery_app import celery_app
+from database import SessionLocal, Conversion
+import pdfplumber, edge_tts, tempfile, asyncio, os
+
+VOICE = "es-ES-AlvaroNeural"
+MP3_DIR = "/tmp/kokito"
+
+@celery_app.task
+def convertir_pdf(pdf_bytes: bytes, filename: str) -> str:
+    os.makedirs(MP3_DIR, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        tmp_pdf.write(pdf_bytes)
+        tmp_pdf_path = tmp_pdf.name
+
+    with pdfplumber.open(tmp_pdf_path) as file:
+        text = ""
+        for page in file.pages:
+            text += page.extract_text()
+
+    if not text:
+        return "ERROR: PDF vacío"
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
+        tmp_mp3_path = tmp_mp3.name
+
+    asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
+
+    db = SessionLocal()
+    conversion = Conversion(nombre=filename, caracteres=len(text))
+    db.add(conversion)
+    db.commit()
+    db.close()
+
+    return tmp_mp3_path
+```
+
+- `@celery_app.task` — decorador que convierte una función normal en una tarea Celery
+- La tarea recibe `pdf_bytes: bytes` en lugar de `UploadFile` — Celery serializa los parámetros para meterlos en Redis, y los objetos de FastAPI no son serializables. Los bytes sí
+- `dir=MP3_DIR` en `NamedTemporaryFile` — fuerza que el MP3 se cree en el volumen compartido en lugar de en `/tmp` genérico
+- `asyncio.run()` — los workers de Celery son síncronos, así que se necesita para ejecutar funciones `async` como las de edge-tts
+
+---
+
+#### 4. backend/main.py — versión final
+```python
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
+from celery.result import AsyncResult
+from tasks import convertir_pdf
+from celery_app import celery_app
+from database import crear_tablas
+
+app = FastAPI()
+
+@app.on_event("startup")
+def startup():
+    crear_tablas()
+
+@app.get("/health_check")
+def health_check():
+    return {"mensaje": "Servicio Api REST activo"}
+
+@app.post("/convertir")
+async def convertir(pdf: UploadFile = File(...)):
+    pdf_bytes = await pdf.read()
+    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename)
+    return {"tarea_id": tarea.id}
+
+@app.get("/resultado/{tarea_id}")
+def resultado(tarea_id: str):
+    tarea = AsyncResult(tarea_id, app=celery_app)
+
+    if tarea.state == "PENDING":
+        return {"estado": "pendiente"}
+    elif tarea.state == "SUCCESS":
+        return FileResponse(tarea.result, media_type="audio/mpeg", filename="kokito.mp3")
+    elif tarea.state == "FAILURE":
+        return {"estado": "error", "detalle": str(tarea.result)}
+```
+
+- `.delay()` — forma abreviada de `.apply_async()`. Manda la tarea a la cola y devuelve un objeto con el ID
+- `AsyncResult(tarea_id, app=celery_app)` — consulta el estado de una tarea en Redis. El parámetro `app=celery_app` es necesario para que sepa qué backend usar; sin él devuelve `DisabledBackend`
+- `tarea.state` — atributo gestionado automáticamente por Celery. Valores posibles: `PENDING`, `STARTED`, `SUCCESS`, `FAILURE`
+- `tarea.result` — contiene el valor de retorno de la tarea si `SUCCESS`, o la excepción si `FAILURE`
+
+---
+
+#### 5. Volumen compartido entre worker y backend
+
+Worker y backend son contenedores distintos con sistemas de archivos independientes. El worker generaba el MP3 en su propio `/tmp` y el backend no podía encontrarlo.
+
+Solución: volumen con nombre `mp3_data` montado en `/tmp/kokito` en ambos contenedores:
+```yaml
+volumes:
+  - mp3_data:/tmp/kokito
+
+volumes:
+  mp3_data:
+```
+
+---
+
+#### 6. Worker y backend en Docker Compose
+
+Se añadió el servicio `worker` al `docker-compose.yml` y se configuró el comando de cada servicio explícitamente:
+```yaml
+backend:
+  command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+worker:
+  build: ./backend
+  command: celery -A celery_app worker --loglevel=info
+```
+
+- `--host 0.0.0.0` — necesario dentro de Docker para aceptar conexiones externas al contenedor. Sin esto uvicorn solo escucha en localhost interno y no es accesible desde el Mac
+- El worker usa el mismo `build` que el backend — mismo código, distinto comando
+
+---
+
+### Estructura del proyecto al final de la sesión
+```
+kokito/
+├── backend/
+│   ├── main.py
+│   ├── tasks.py
+│   ├── celery_app.py
+│   ├── database.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── docker-compose.yml
+├── .gitignore
+└── DIARIO.md
+```
+
+---
+
+### Errores encontrados
+
+**`KeyError: tasks.convertir_pdf` en el worker** — el worker no registraba la tarea porque faltaba `include=["tasks"]` en `celery_app.py`.
+
+**`DisabledBackend`** — `AsyncResult` no sabía qué backend usar. Solución: pasar `app=celery_app` explícitamente y añadir `result_backend` en `celery_app.conf.update`.
+
+**`FileNotFoundError` al servir el MP3** — el archivo se generaba en el `/tmp` del worker pero el backend lo buscaba en su propio sistema de archivos. Solución: volumen compartido `mp3_data` montado en `/tmp/kokito` en ambos contenedores.
