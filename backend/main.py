@@ -1,11 +1,19 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import crear_tablas
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def startup():

@@ -793,3 +793,261 @@ kokito/
 **`DisabledBackend`** — `AsyncResult` no sabía qué backend usar. Solución: pasar `app=celery_app` explícitamente y añadir `result_backend` en `celery_app.conf.update`.
 
 **`FileNotFoundError` al servir el MP3** — el archivo se generaba en el `/tmp` del worker pero el backend lo buscaba en su propio sistema de archivos. Solución: volumen compartido `mp3_data` montado en `/tmp/kokito` en ambos contenedores.
+
+## Sesión 5 — Frontend con React + Tailwind (Fase 5 completa)
+
+### Lo que hemos construido
+
+- **Proyecto React** creado con Vite
+- **Tailwind CSS** configurado para estilos utilitarios
+- **Interfaz completa** con tres estados: subir PDF, spinner de procesado, y reproductor de audio
+- **Polling automático** cada 2 segundos para consultar el estado de la tarea
+- **CORS** configurado en el backend para permitir peticiones desde el frontend
+
+---
+
+### Pasos realizados
+
+#### 1. Instalación de Node.js con nvm
+
+Node.js no estaba instalado. Se instaló con nvm (gestor de versiones de Node, equivalente a pyenv para Python):
+```bash
+brew install nvm
+```
+
+Añadir al `.zshrc`:
+```bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
+```
+```bash
+source ~/.zshrc
+nvm install --lts
+nvm use --lts
+```
+
+---
+
+#### 2. Crear el proyecto React con Vite
+```bash
+cd ~/repos/kokito
+npm create vite@latest frontend -- --template react
+cd frontend
+npm install
+npm install -D tailwindcss@3 postcss autoprefixer
+npx tailwindcss init -p
+```
+
+- `vite` — transforma JSX a JavaScript que el navegador entiende y levanta un servidor de desarrollo con recarga automática
+- `tailwindcss@3` — versión estable. La v4 cambió la API y ya no usa `tailwindcss init`
+- `postcss` y `autoprefixer` — necesarios para que Tailwind procese el CSS internamente
+
+---
+
+#### 3. Configuración de Tailwind
+
+**`frontend/tailwind.config.js`:**
+```js
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,jsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+El campo `content` le dice a Tailwind dónde buscar las clases usadas para incluirlas en el CSS final. Sin esto Tailwind no genera ningún estilo.
+
+**`frontend/src/index.css`:**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+El aviso `Unknown at rule @tailwind` en VS Code es solo una advertencia del editor — no afecta al funcionamiento. Se puede silenciar creando `frontend/.vscode/settings.json`:
+```json
+{
+  "css.validate": false
+}
+```
+
+---
+
+#### 4. frontend/src/App.jsx
+```jsx
+import { useState } from "react"
+
+const API = "http://localhost:8000"
+
+function App() {
+  const [estado, setEstado] = useState("inicial")
+  const [tareaId, setTareaId] = useState(null)
+  const [mp3Url, setMp3Url] = useState(null)
+  const [error, setError] = useState(null)
+
+  async function handleSubmit(e) {
+    const archivo = e.target.files[0]
+    if (!archivo) return
+
+    setEstado("procesando")
+    setError(null)
+
+    const formData = new FormData()
+    formData.append("pdf", archivo)
+
+    const res = await fetch(`${API}/convertir`, {
+      method: "POST",
+      body: formData,
+    })
+    const data = await res.json()
+    setTareaId(data.tarea_id)
+
+    const intervalo = setInterval(async () => {
+      const res = await fetch(`${API}/resultado/${data.tarea_id}`)
+
+      if (res.headers.get("content-type")?.includes("audio")) {
+        clearInterval(intervalo)
+        const blob = await res.blob()
+        setMp3Url(URL.createObjectURL(blob))
+        setEstado("listo")
+      } else {
+        const result = await res.json()
+        if (result.estado === "error") {
+          clearInterval(intervalo)
+          setError(result.detalle)
+          setEstado("inicial")
+        }
+      }
+    }, 2000)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+      <div className="bg-gray-900 rounded-2xl p-10 w-full max-w-md shadow-xl flex flex-col items-center gap-6">
+        <h1 className="text-3xl font-bold tracking-tight">Kokito</h1>
+        <p className="text-gray-400 text-sm text-center">
+          Convierte un PDF a audio en segundos
+        </p>
+
+        {estado === "inicial" && (
+          <div className="w-full flex flex-col items-center gap-4">
+            <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-8 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
+              <span className="text-4xl">📄</span>
+              <span className="text-sm">Haz clic para seleccionar un PDF</span>
+              <input
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={handleSubmit}
+              />
+            </label>
+            {error && (
+              <p className="text-red-400 text-sm text-center">{error}</p>
+            )}
+          </div>
+        )}
+
+        {estado === "procesando" && (
+          <div className="flex flex-col items-center gap-4 py-4">
+            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-gray-400 text-sm">Generando audio...</p>
+            <p className="text-gray-600 text-xs font-mono">{tareaId}</p>
+          </div>
+        )}
+
+        {estado === "listo" && (
+          <div className="flex flex-col items-center gap-4 w-full">
+            <span className="text-5xl">✅</span>
+            <p className="text-gray-300 text-sm">Audio listo</p>
+            <audio controls src={mp3Url} className="w-full mt-2" />
+            
+              href={mp3Url}
+              download="kokito.mp3"
+              className="w-full text-center bg-blue-600 hover:bg-blue-500 transition text-white font-medium py-2 rounded-xl text-sm"
+            >
+              Descargar MP3
+            </a>
+            <button
+              onClick={() => { setEstado("inicial"); setMp3Url(null) }}
+              className="text-gray-500 hover:text-gray-300 text-xs transition"
+            >
+              Convertir otro PDF
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default App
+```
+
+**Conceptos clave:**
+
+- `useState` — hook de React que define estado local. Cuando se llama a la función setter, React re-renderiza el componente con el valor nuevo
+- `setInterval` — consulta `/resultado` cada 2 segundos hasta que la tarea termina o da error. Se cancela con `clearInterval` cuando ya no hace falta
+- La detección de si la tarea terminó se hace comprobando el `content-type` de la respuesta — si incluye `audio` es el MP3, si no es JSON con el estado
+- `URL.createObjectURL(blob)` — convierte el MP3 que llega del servidor en una URL temporal que el navegador puede reproducir directamente
+- `FormData` — formato necesario para enviar archivos via HTTP desde el navegador. Equivalente a `multipart/form-data`
+
+---
+
+#### 5. CORS en el backend
+
+El navegador bloquea por seguridad las peticiones desde un origen (`localhost:5173`) a otro (`localhost:8000`) salvo que el servidor lo permita explícitamente. Se añadió el middleware de CORS a `main.py`:
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Sin esto el frontend recibía la respuesta del POST `/convertir` pero las llamadas al GET `/resultado` eran bloqueadas silenciosamente por el navegador, dejando el spinner girando indefinidamente.
+
+---
+
+### Arrancar el proyecto
+```bash
+# Terminal 1
+docker compose up
+
+# Terminal 2
+cd frontend
+npm run dev
+```
+
+Frontend disponible en `http://localhost:5173`.
+
+---
+
+### Estructura del proyecto al final de la sesión
+```
+kokito/
+├── backend/
+│   ├── main.py
+│   ├── tasks.py
+│   ├── celery_app.py
+│   ├── database.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   └── index.css
+│   ├── tailwind.config.js
+│   ├── index.html
+│   └── package.json
+├── docker-compose.yml
+├── .gitignore
+└── DIARIO.md
+```
