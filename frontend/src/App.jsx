@@ -7,6 +7,7 @@ function App() {
   const [tareaId, setTareaId] = useState(null)
   const [mp3Url, setMp3Url] = useState(null)
   const [error, setError] = useState(null)
+  const [progreso, setProgreso] = useState(0)
 
   async function handleSubmit(e) {
     const archivo = e.target.files[0]
@@ -39,6 +40,12 @@ function App() {
           clearInterval(intervalo)
           setError(result.detalle)
           setEstado("inicial")
+        } else if (result.estado === "progreso") {
+          setProgreso(result.porcentaje)
+        } else if (result.estado !== "pendiente") {
+          clearInterval(intervalo)
+          setError("Ha ocurrido un error inesperado")
+          setEstado("inicial")
         }
       }
     }, 2000)
@@ -69,11 +76,14 @@ function App() {
             )}
           </div>
         )}
-
+        
         {estado === "procesando" && (
           <div className="flex flex-col items-center gap-4 py-4">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-gray-400 text-sm">Generando audio...</p>
+            <p className="text-gray-400 text-sm">Generando audio... {progreso}%</p>
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${progreso}%`}} />
+            </div>
             <p className="text-gray-600 text-xs font-mono">{tareaId}</p>
           </div>
         )}

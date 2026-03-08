@@ -2,24 +2,29 @@
 
 ## Inicio rápido
 
-### Preparación del entorno
+### Preparación del entorno (solo la primera vez o si hay problemas)
+- nvm y pyenv se cargan solos al abrir la terminal gracias al `.zshrc`
+- Si `npm` o `python3` no se encuentran, ejecutar `source ~/.zshrc` y reintentar
+
+### Arrancar el proyecto
+**Terminal 1 — Backend y servicios:**
 ```bash
 cd ~/repos/kokito
-source venv/bin/activate
+docker compose up
 ```
 
-### Levantar el servidor
+**Terminal 2 — Frontend:**
 ```bash
-cd backend
-uvicorn main:app --reload
+cd ~/repos/kokito/frontend
+npm run dev
 ```
-Parar el servidor: `Ctrl + C` en la terminal donde está corriendo.
 
-### Docker (cuando sea necesario)
-```bash
-docker compose up    # Levantar todos los servicios
-docker compose down  # Parar todos los servicios
-```
+Frontend disponible en `http://localhost:5173`  
+Backend disponible en `http://localhost:8000`
+
+### Parar el proyecto
+- Backend: `Ctrl + C` en la Terminal 1, luego `docker compose down`
+- Frontend: `Ctrl + C` en la Terminal 2
 
 ### Comandos git del día a día
 ```bash
@@ -30,6 +35,11 @@ git commit -m "mensaje del commit" # Guardar los cambios con un mensaje
 git push                          # Subir los commits a GitHub
 git log --oneline                 # Ver el historial de commits resumido
 git diff                          # Ver los cambios no añadidos al stage
+```
+
+### Levantar frontend
+```bash
+npm run dev
 ```
 
 ---
@@ -1051,3 +1061,173 @@ kokito/
 ├── .gitignore
 └── DIARIO.md
 ```
+
+---
+
+## Sesión 6 — Limpieza de texto (Nivel 1 completa)
+
+### Lo que hemos construido
+
+- **Función `limpiar_texto`** en `tasks.py` que preprocesa el texto extraído antes de enviarlo al TTS
+- **Limitación de páginas** para pruebas sin procesar el PDF entero
+- **Manejo de errores mejorado** — PDFs vacíos o escaneados ya no dejan el spinner infinito
+
+---
+
+### Pasos realizados
+
+#### 1. Limitación de páginas para pruebas
+
+En `tasks.py`, el bucle de extracción acepta un slice para procesar solo las páginas necesarias:
+```python
+for page in file.pages[1:2]:  # Solo la segunda página
+    text += page.extract_text()
+```
+
+- `[:1]` — solo la primera página
+- `[1:2]` — solo la segunda página
+- Sin slice — el PDF entero
+
+---
+
+#### 2. Manejo de errores en PDFs vacíos
+
+Cambio en `tasks.py` — en lugar de devolver un string de error (que Celery marca como `SUCCESS`), se lanza una excepción real:
+```python
+if not text:
+    raise ValueError("El PDF no contiene texto extraíble")
+```
+
+Así Celery marca la tarea como `FAILURE` y el frontend puede detectarlo correctamente.
+
+Cambio en `App.jsx` — se añadió un caso para estados inesperados en el polling:
+```javascript
+} else if (result.estado !== "pendiente") {
+    clearInterval(intervalo)
+    setError("Ha ocurrido un error inesperado")
+    setEstado("inicial")
+}
+```
+
+---
+
+#### 3. Función limpiar_texto
+```python
+import re
+
+def limpiar_texto(texto: str) -> str:
+    # Títulos en mayúsculas — añadir pausa antes y después
+    texto = re.sub(r"\n([A-ZÁÉÍÓÚÑÜ]+)\n", r". \1. ", texto)
+    # Saltos de línea dobles — pausa entre secciones
+    texto = re.sub(r"\n{2,}", ". ", texto)
+    # Saltos de línea simples — dentro de párrafo, reemplazar por espacio
+    texto = re.sub(r"\s+", " ", re.sub(r"\n", " ", texto))
+    # Pies de página y URLs
+    texto = re.sub(r"-?\s*Página\s*\d+", "", texto)
+    texto = re.sub(r"www\.\S+", "", texto)
+    return texto
+```
+
+Se llama justo antes de pasarle el texto a edge-tts:
+```python
+text = limpiar_texto(text)
+asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
+```
+
+**Conceptos clave:**
+
+- `re.sub(patrón, reemplazo, texto)` — busca y reemplaza patrones en un string
+- `r"\n{2,}"` — dos o más saltos de línea seguidos
+- `r"\1"` — referencia al grupo capturado entre paréntesis en el patrón
+- `?` en un patrón — el elemento anterior es opcional (cero o una vez)
+- El orden importa: hay que salvar los dobles antes de colapsar los simples
+
+---
+
+### Errores encontrados
+
+**Spinner infinito en PDFs vacíos** — Celery marcaba la tarea como `SUCCESS` aunque devolviera un string de error, porque técnicamente no había excepción. Solución: usar `raise` en lugar de `return` para los errores.
+
+**Títulos sin pausa** — los títulos en este PDF están separados por `\n` simples, no dobles. Se detectan buscando líneas con solo letras mayúsculas.
+
+---
+
+## Sesión 6.5 — Barra de progreso
+
+### Lo que hemos construido
+
+- **Reporte de progreso en tiempo real** desde el worker de Celery
+- **Barra de progreso visual** en el frontend con porcentaje
+
+---
+
+### Cambios realizados
+
+#### tasks.py
+
+`bind=True` en el decorador permite usar `self` dentro de la tarea para reportar el estado:
+```python
+@celery_app.task(bind=True)
+def convertir_pdf(self, pdf_bytes: bytes, filename: str) -> str:
+```
+
+El bucle reporta en qué página va en cada iteración:
+```python
+paginas = file.pages
+total = len(paginas)
+for i, page in enumerate(paginas):
+    text += page.extract_text()
+    self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+```
+
+- `enumerate()` — devuelve el índice y el valor en cada iteración, equivalente a un `for` con contador en Java
+- `self.update_state()` — guarda el estado actual en Redis para que el backend pueda consultarlo
+
+---
+
+#### main.py
+
+Nuevo caso en `/resultado` para el estado `PROGRESS`:
+```python
+elif tarea.state == "PROGRESS":
+    pagina = tarea.info.get("pagina", 0)
+    total = tarea.info.get("total", 1)
+    porcentaje = int((pagina / total) * 100)
+    return {"estado": "progreso", "porcentaje": porcentaje}
+```
+
+---
+
+#### App.jsx
+
+Nuevo estado `progreso` y barra visual en el bloque de procesando:
+```javascript
+const [progreso, setProgreso] = useState(0)
+```
+```javascript
+} else if (result.estado === "progreso") {
+    setProgreso(result.porcentaje)
+}
+```
+```jsx
+<p className="text-gray-400 text-sm">Generando audio... {progreso}%</p>
+<div className="w-full bg-gray-700 rounded-full h-2">
+    <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${progreso}%`}} />
+</div>
+```
+
+---
+
+### Notas
+
+- Con PDFs cortos (2-3 páginas) el worker termina antes de que el polling capture estados intermedios, por lo que la barra salta directamente a 100%. Con PDFs largos el progreso se verá correctamente.
+
+---
+
+### Próxima sesión — Sesión 7
+
+Opciones planteadas:
+
+- **Nivel 2 — Estructura**: detectar párrafos y listas para pausas más naturales
+- **Nivel 3 — IA**: usar OpenAI para reformular el texto pensado para ser escuchado
+- **Deploy**: subir el proyecto a producción (Render/Railway + Vercel)

@@ -39,3 +39,8 @@ def resultado(tarea_id: str):
         return FileResponse(tarea.result, media_type="audio/mpeg", filename="kokito.mp3")
     elif tarea.state == "FAILURE":
         return {"estado": "error", "detalle": str(tarea.result)}
+    elif tarea.state == "PROGRESS":
+        pagina = tarea.info.get("pagina", 0)
+        total = tarea.info.get("total", 1)
+        porcentaje = int((pagina / total) * 100)
+        return {"estado": "progreso", "porcentaje": porcentaje}
