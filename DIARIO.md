@@ -1552,3 +1552,295 @@ gcloud run services update kokito-billing-stopper \
   --region=europe-west1 \
   --project=kokito
 ```
+
+---
+
+## Sesión 9 — Google TTS integrado y estadísticas de uso
+
+### Lo que hemos construido
+
+- **`tts/google.py`** implementado completamente con Google Cloud Text-to-Speech
+- **Fragmentación automática** del texto para respetar el límite de 5000 bytes por petición de la API
+- **Endpoint `GET /estadisticas`** que consulta la BBDD y devuelve el uso de caracteres del mes actual
+- **Barra de progreso de uso** en el frontend que se actualiza al terminar cada conversión
+- **Voz seleccionada**: `es-ES-Chirp3-HD-Charon` — masculina, adulta, grave, tecnología Chirp3 HD
+
+---
+
+### Pasos realizados
+
+#### 1. Habilitar la API de Google TTS
+```bash
+gcloud services enable texttospeech.googleapis.com --project=kokito
+```
+
+---
+
+#### 2. Instalar el cliente de Google TTS
+```bash
+pip install google-cloud-texttospeech pydub
+pip freeze > backend/requirements.txt
+```
+
+- `google-cloud-texttospeech` — cliente oficial de Google para la API de TTS
+- `pydub` — librería para concatenar fragmentos de audio MP3
+
+---
+
+#### 3. Credenciales en desarrollo
+
+Google TTS requiere autenticación via Application Default Credentials (ADC). En desarrollo se usa el archivo de credenciales del SDK de Google Cloud instalado en el Mac:
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project kokito
+```
+
+El archivo se genera en `~/.config/gcloud/application_default_credentials.json` y se monta en el contenedor del worker via volumen en `docker-compose.yml`. **Nunca se sube al repositorio.**
+
+En producción este archivo no se usa — las credenciales se inyectan via variables de entorno en el panel del proveedor de cloud asignando una Service Account con los permisos necesarios.
+
+---
+
+#### 4. docker-compose.yml — cambios en el worker
+
+Se añadieron el volumen del archivo de credenciales y la variable de entorno que apunta a él:
+```yaml
+worker:
+  build: ./backend
+  volumes:
+    - ./backend:/app
+    - mp3_data:/tmp/kokito
+    - /Users/wander/.config/gcloud/application_default_credentials.json:/tmp/gcloud_credentials.json
+  environment:
+    - DATABASE_URL=postgresql://kokito:kokito@db:5432/kokito
+    - CELERY_BROKER_URL=redis://redis:6379/0
+    - GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcloud_credentials.json
+  depends_on:
+    - db
+    - redis
+  command: celery -A celery_app worker --loglevel=info
+```
+
+---
+
+#### 5. Dockerfile — ffmpeg
+
+`pydub` necesita `ffmpeg` instalado en el contenedor para leer y concatenar MP3:
+```dockerfile
+FROM python:3.11-slim
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . /app/
+CMD ["python", "kokito.py"]
+```
+
+---
+
+#### 6. backend/tts/google.py
+
+La API de Google TTS tiene un límite de 5000 bytes por petición. Se implementó una función `dividir_texto` que parte el texto en fragmentos respetando ese límite sin cortar palabras, convierte cada fragmento por separado y los concatena con `pydub`:
+```python
+import os
+import tempfile
+import pdfplumber
+from pydub import AudioSegment
+from google.cloud import texttospeech
+from database import SessionLocal, Conversion
+from tts.text_utils import limpiar_texto
+
+MP3_DIR = "/tmp/kokito"
+MAX_BYTES = 4800
+
+def dividir_texto(texto: str) -> list[str]:
+    fragmentos = []
+    while len(texto.encode("utf-8")) > MAX_BYTES:
+        corte = MAX_BYTES
+        while len(texto[:corte].encode("utf-8")) > MAX_BYTES:
+            corte -= 1
+        corte = texto.rfind(" ", 0, corte)
+        fragmentos.append(texto[:corte])
+        texto = texto[corte:].strip()
+    fragmentos.append(texto)
+    return fragmentos
+
+def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
+    os.makedirs(MP3_DIR, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        tmp_pdf.write(pdf_bytes)
+        tmp_pdf_path = tmp_pdf.name
+
+    with pdfplumber.open(tmp_pdf_path) as file:
+        text = ""
+        paginas = file.pages[10:12]
+        total = len(paginas)
+        for i, page in enumerate(paginas):
+            text += page.extract_text()
+            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+
+    if not text:
+        raise ValueError("El PDF no contiene texto extraíble")
+
+    text = limpiar_texto(text)
+
+    client = texttospeech.TextToSpeechClient()
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="es-ES",
+        name="es-ES-Chirp3-HD-Charon"
+    )
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3
+    )
+
+    fragmentos = dividir_texto(text)
+    segmentos = []
+    for fragmento in fragmentos:
+        synthesis_input = texttospeech.SynthesisInput(text=fragmento)
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice,
+            audio_config=audio_config
+        )
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp:
+            tmp.write(response.audio_content)
+            segmentos.append(AudioSegment.from_mp3(tmp.name))
+
+    audio_final = segmentos[0]
+    for segmento in segmentos[1:]:
+        audio_final += segmento
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
+        tmp_mp3_path = tmp_mp3.name
+
+    audio_final.export(tmp_mp3_path, format="mp3")
+
+    db = SessionLocal()
+    conversion = Conversion(nombre=filename, caracteres=len(text))
+    db.add(conversion)
+    db.commit()
+    db.close()
+
+    return tmp_mp3_path
+```
+
+**Conceptos clave:**
+
+- `MAX_BYTES = 4800` — se usa 4800 en lugar de 5000 como margen de seguridad
+- `texto.rfind(" ", 0, corte)` — busca el último espacio antes del límite para no cortar palabras a la mitad
+- `AudioSegment.from_mp3` + `+=` — carga cada fragmento de audio y los concatena en memoria
+- `audio_final.export` — escribe el audio concatenado al archivo final
+
+---
+
+#### 7. Selección de voz
+
+Se probaron las siguientes voces masculinas de español de España con un fragmento de texto real:
+
+- `es-ES-Studio-F`
+- `es-ES-Neural2-F`, `es-ES-Neural2-G`
+- `es-ES-Chirp3-HD-Charon`, `es-ES-Chirp3-HD-Fenrir`, `es-ES-Chirp3-HD-Iapetus`
+
+**Voz seleccionada: `es-ES-Chirp3-HD-Charon`** — tecnología Chirp3 HD (la más reciente de Google), voz masculina adulta y grave, acento español de España.
+
+Script usado para generar las muestras:
+```python
+from google.cloud import texttospeech
+
+voces = [
+    "es-ES-Studio-F",
+    "es-ES-Neural2-F",
+    "es-ES-Neural2-G",
+    "es-ES-Chirp3-HD-Charon",
+    "es-ES-Chirp3-HD-Fenrir",
+    "es-ES-Chirp3-HD-Iapetus",
+]
+
+client = texttospeech.TextToSpeechClient()
+texto = "Bienvenido a Kokito, tu asistente de conversión de libros a audio."
+
+for voz in voces:
+    synthesis_input = texttospeech.SynthesisInput(text=texto)
+    voice = texttospeech.VoiceSelectionParams(language_code="es-ES", name=voz)
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    with open(f"{voz}.mp3", "wb") as f:
+        f.write(response.audio_content)
+```
+
+---
+
+#### 8. Endpoint GET /estadisticas
+
+Nuevo endpoint en `main.py` que suma los caracteres procesados en el mes natural actual consultando la tabla `conversiones`:
+```python
+from sqlalchemy import func
+from datetime import datetime, timezone
+
+@app.get("/estadisticas")
+def estadisticas():
+    db = SessionLocal()
+    ahora = datetime.now(timezone.utc)
+    caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
+        Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    ).scalar() or 0
+    db.close()
+    return {
+        "caracteres_mes": caracteres_mes,
+        "limite_gratuito": 1_000_000,
+        "porcentaje": round((caracteres_mes / 1_000_000) * 100, 2)
+    }
+```
+
+- El contador va de día 1 a último día del mes natural y se resetea solo el día 1 de cada mes
+- `or 0` — evita que devuelva `None` si no hay conversiones ese mes
+
+---
+
+#### 9. Frontend — barra de uso
+
+Se añadió un bloque de estadísticas en la parte inferior de la tarjeta que muestra el consumo del mes y se actualiza automáticamente al terminar cada conversión:
+```jsx
+const [estadisticas, setEstadisticas] = useState(null)
+
+useEffect(() => {
+  fetch(`${API}/estadisticas`)
+    .then(res => res.json())
+    .then(data => setEstadisticas(data))
+}, [])
+
+// Al terminar la conversión:
+fetch(`${API}/estadisticas`)
+  .then(res => res.json())
+  .then(data => setEstadisticas(data))
+```
+```jsx
+{estadisticas && (
+  <div className="w-full border-t border-gray-800 pt-4 flex flex-col gap-2">
+    <div className="flex justify-between text-xs text-gray-500">
+      <span>Uso Google TTS este mes</span>
+      <span>{estadisticas.caracteres_mes.toLocaleString()} / 1.000.000 caracteres</span>
+    </div>
+    <div className="w-full bg-gray-700 rounded-full h-1.5">
+      <div
+        className="bg-green-500 h-1.5 rounded-full transition-all"
+        style={{ width: `${Math.min(estadisticas.porcentaje, 100)}%` }}
+      />
+    </div>
+    <p className="text-xs text-gray-600 text-right">{estadisticas.porcentaje}% usado</p>
+  </div>
+)}
+```
+
+---
+
+### Errores encontrados
+
+**`quota project not set`** — las credenciales ADC no tenían proyecto de quota asignado. Solución: `gcloud auth application-default set-quota-project kokito`.
+
+**`InvalidArgument: input.text longer than 5000 bytes`** — la API de Google TTS no acepta textos de más de 5000 bytes por petición. Solución: fragmentar el texto con `dividir_texto` y concatenar los MP3 resultantes con `pydub`.
+
+**`FileNotFoundError: ffprobe`** — `pydub` necesita `ffmpeg` instalado en el sistema para procesar MP3. Solución: añadir `apt-get install -y ffmpeg` al `Dockerfile`.
+
+---

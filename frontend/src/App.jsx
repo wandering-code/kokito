@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 const API = "http://localhost:8000"
 
@@ -9,6 +9,13 @@ function App() {
   const [mp3Url, setMp3Url] = useState(null)
   const [error, setError] = useState(null)
   const [progreso, setProgreso] = useState(0)
+  const [estadisticas, setEstadisticas] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API}/estadisticas`)
+      .then(res => res.json())
+      .then(data => setEstadisticas(data))
+  }, [])
 
   async function handleSubmit(e) {
     const archivo = e.target.files[0]
@@ -36,6 +43,17 @@ function App() {
         const blob = await res.blob()
         setMp3Url(URL.createObjectURL(blob))
         setEstado("listo")
+
+        if (res.headers.get("content-type")?.includes("audio")) {
+          clearInterval(intervalo)
+          const blob = await res.blob()
+          setMp3Url(URL.createObjectURL(blob))
+          setEstado("listo")
+          // Recargar estadísticas
+          fetch(`${API}/estadisticas`)
+            .then(res => res.json())
+            .then(data => setEstadisticas(data))
+        }
       } else {
         const result = await res.json()
         if (result.estado === "error") {
@@ -134,6 +152,22 @@ function App() {
             >
               Convertir otro PDF
             </button>
+          </div>
+        )}
+
+        {estadisticas && (
+          <div className="w-full border-t border-gray-800 pt-4 flex flex-col gap-2">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Uso Google TTS este mes</span>
+              <span>{estadisticas.caracteres_mes.toLocaleString()} / 1.000.000 caracteres</span>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-1.5">
+              <div
+                className="bg-green-500 h-1.5 rounded-full transition-all"
+                style={{ width: `${Math.min(estadisticas.porcentaje, 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-600 text-right">{estadisticas.porcentaje}% usado</p>
           </div>
         )}
       </div>

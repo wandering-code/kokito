@@ -4,7 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from tasks import convertir_pdf
 from celery_app import celery_app
-from database import crear_tablas
+from database import crear_tablas, SessionLocal, Conversion
+from sqlalchemy import func
+from datetime import datetime, timezone
 
 app = FastAPI()
 
@@ -44,3 +46,17 @@ def resultado(tarea_id: str):
         total = tarea.info.get("total", 1)
         porcentaje = int((pagina / total) * 100)
         return {"estado": "progreso", "porcentaje": porcentaje}
+    
+@app.get("/estadisticas")
+def estadisticas():
+    db = SessionLocal()
+    ahora = datetime.now(timezone.utc)
+    caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
+        Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    ).scalar() or 0
+    db.close()
+    return {
+        "caracteres_mes": caracteres_mes,
+        "limite_gratuito": 1_000_000,
+        "porcentaje": round((caracteres_mes / 1_000_000) * 100, 2)
+    }
