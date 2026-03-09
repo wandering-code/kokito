@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
@@ -24,9 +24,9 @@ def health_check():
     return {"mensaje": "Servicio Api REST activo"}
 
 @app.post("/convertir")
-async def convertir(pdf: UploadFile = File(...)):
+async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...)):
     pdf_bytes = await pdf.read()
-    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename)
+    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor)
     return {"tarea_id": tarea.id}
 
 @app.get("/resultado/{tarea_id}")

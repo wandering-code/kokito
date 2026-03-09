@@ -4,6 +4,7 @@ const API = "http://localhost:8000"
 
 function App() {
   const [estado, setEstado] = useState("inicial")
+  const [proveedor, setProveedor] = useState("edge")
   const [tareaId, setTareaId] = useState(null)
   const [mp3Url, setMp3Url] = useState(null)
   const [error, setError] = useState(null)
@@ -18,6 +19,7 @@ function App() {
 
     const formData = new FormData()
     formData.append("pdf", archivo)
+    formData.append("proveedor", proveedor)
 
     const res = await fetch(`${API}/convertir`, {
       method: "POST",
@@ -61,6 +63,32 @@ function App() {
 
         {estado === "inicial" && (
           <div className="w-full flex flex-col items-center gap-4">
+            <div className="w-full flex flex-col gap-2">
+            <span className="text-sm text-gray-400">Selecciona un agente:</span>
+            <div className="w-full flex rounded-xl overflow-hidden border border-gray-700">
+              <button
+                onClick={() => setProveedor("edge")}
+                className={`flex-1 py-2 text-sm font-medium transition ${
+                  proveedor === "edge"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:text-white"
+                }`}
+              >
+                Edge TTS
+              </button>
+              <button
+                onClick={() => setProveedor("google")}
+                className={`flex-1 py-2 text-sm font-medium transition ${
+                  proveedor === "google"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:text-white"
+                }`}
+              >
+                Google TTS
+              </button>
+            </div>
+          </div>
+
             <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-8 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
               <span className="text-4xl">📄</span>
               <span className="text-sm">Haz clic para seleccionar un PDF</span>

@@ -1224,10 +1224,331 @@ const [progreso, setProgreso] = useState(0)
 
 ---
 
-### Próxima sesión — Sesión 7
+## Sesión 7 — Refactorización TTS y soporte multi-proveedor
 
-Opciones planteadas:
+### Lo que hemos construido
 
-- **Nivel 2 — Estructura**: detectar párrafos y listas para pausas más naturales
-- **Nivel 3 — IA**: usar OpenAI para reformular el texto pensado para ser escuchado
-- **Deploy**: subir el proyecto a producción (Render/Railway + Vercel)
+- **Módulo `tts/`** con la lógica de conversión separada por proveedor
+- **`tts/text_utils.py`** con la función `limpiar_texto` extraída de `tasks.py`
+- **`tts/edge.py`** con la lógica completa de conversión usando edge-tts
+- **`tts/google.py`** con el stub para Google Cloud TTS (WIP)
+- **Endpoint `/convertir` actualizado** para recibir el parámetro `proveedor`
+- **Selector visual en el frontend** para elegir entre Edge TTS y Google TTS
+
+---
+
+### Pasos realizados
+
+#### 1. Estructura del módulo tts
+
+Se extrajo toda la lógica de conversión de `tasks.py` a un módulo independiente:
+```
+backend/
+├── tts/
+│   ├── edge.py
+│   ├── google.py
+│   └── text_utils.py
+├── tasks.py
+├── main.py
+...
+```
+
+La motivación es separar responsabilidades: `tasks.py` solo decide qué proveedor usar, y cada módulo dentro de `tts/` implementa la conversión completa para ese proveedor.
+
+---
+
+#### 2. backend/tts/text_utils.py
+
+La función `limpiar_texto` se movió aquí desde `tasks.py` para que pueda ser reutilizada por cualquier proveedor:
+```python
+import re
+
+def limpiar_texto(texto: str) -> str:
+    # Limpiando pausas tras títulos
+    texto_limpio = re.sub(r"\n([A-ZÁÉÍÓÚÑÜ]+)\n", r". \1. ", texto)
+
+    # Limpiando saltos de línea
+    texto_limpio = re.sub(r"\n{2,}", ". ", texto_limpio)
+    texto_limpio = re.sub(r"\s+", " ", re.sub(r"\n", " ", texto_limpio))
+
+    # Limpiando la paginación y las URLs
+    texto_limpio = re.sub(r"-?\s*Página\s*\d+", "", texto_limpio)
+    texto_limpio = re.sub(r"www\.\S+", "", texto_limpio)
+
+    return texto_limpio
+```
+
+---
+
+#### 3. backend/tts/edge.py
+
+Contiene la lógica completa que antes estaba en `tasks.py`, ahora como función independiente que recibe `self` (la instancia de la tarea Celery) para poder reportar progreso:
+```python
+from celery_app import celery_app
+from database import SessionLocal, Conversion
+import pdfplumber, edge_tts, tempfile, asyncio, os, re
+from tts.text_utils import limpiar_texto
+
+VOICE = "es-ES-AlvaroNeural"
+MP3_DIR = "/tmp/kokito"
+
+def process_file_with_edge(self, pdf_bytes: bytes, filename: str) -> str:
+    os.makedirs(MP3_DIR, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        tmp_pdf.write(pdf_bytes)
+        tmp_pdf_path = tmp_pdf.name
+
+    with pdfplumber.open(tmp_pdf_path) as file:
+        text = ""
+        paginas = file.pages[10:12]  # Limitado a páginas 11 y 12 para pruebas
+        total = len(paginas)
+        for i, page in enumerate(paginas):
+            text += page.extract_text()
+            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+
+    if not text:
+        raise ValueError("El PDF no contiene texto extraíble")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
+        tmp_mp3_path = tmp_mp3.name
+
+    text = limpiar_texto(text)
+    asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
+
+    db = SessionLocal()
+    conversion = Conversion(nombre=filename, caracteres=len(text))
+    db.add(conversion)
+    db.commit()
+    db.close()
+
+    return tmp_mp3_path
+```
+
+---
+
+#### 4. backend/tts/google.py
+
+Stub vacío pendiente de implementar:
+```python
+def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
+    return "WIP"
+```
+
+---
+
+#### 5. backend/tasks.py — versión final
+
+Simplificado a un dispatcher que delega en el proveedor correspondiente:
+```python
+from celery_app import celery_app
+from database import SessionLocal, Conversion
+from tts.edge import process_file_with_edge
+from tts.google import process_file_with_google
+
+@celery_app.task(bind=True)
+def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str) -> str:
+    print("Tratando PDF con proveedor de " + proveedor)
+    if proveedor == "edge":
+        return process_file_with_edge(self, pdf_bytes, filename)
+    elif proveedor == "google":
+        return process_file_with_google(self, pdf_bytes, filename)
+```
+
+---
+
+#### 6. backend/main.py — cambios
+
+Se añadió `proveedor` como parámetro obligatorio del endpoint `/convertir`:
+```python
+from fastapi import FastAPI, UploadFile, File, Form
+
+@app.post("/convertir")
+async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...)):
+    pdf_bytes = await pdf.read()
+    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor)
+    return {"tarea_id": tarea.id}
+```
+
+- `Form(...)` — indica que el parámetro llega como campo de formulario (`multipart/form-data`), no como JSON. Necesario porque el endpoint ya recibe un archivo y no puede mezclar `multipart` con JSON
+
+---
+
+#### 7. frontend/src/App.jsx — selector de proveedor
+
+Se añadió estado `proveedor` y un selector visual tipo toggle antes del campo de subida:
+```jsx
+const [proveedor, setProveedor] = useState("edge")
+
+// Al enviar:
+formData.append("proveedor", proveedor)
+
+// UI:
+<div className="w-full flex rounded-xl overflow-hidden border border-gray-700">
+  <button
+    onClick={() => setProveedor("edge")}
+    className={`flex-1 py-2 text-sm font-medium transition ${
+      proveedor === "edge"
+        ? "bg-blue-600 text-white"
+        : "bg-gray-800 text-gray-400 hover:text-white"
+    }`}
+  >
+    Edge TTS
+  </button>
+  <button
+    onClick={() => setProveedor("google")}
+    className={`flex-1 py-2 text-sm font-medium transition ${
+      proveedor === "google"
+        ? "bg-blue-600 text-white"
+        : "bg-gray-800 text-gray-400 hover:text-white"
+    }`}
+  >
+    Google TTS
+  </button>
+</div>
+```
+
+---
+
+### Estructura del proyecto al final de la sesión
+```
+kokito/
+├── backend/
+│   ├── tts/
+│   │   ├── edge.py
+│   │   ├── google.py
+│   │   └── text_utils.py
+│   ├── main.py
+│   ├── tasks.py
+│   ├── celery_app.py
+│   ├── database.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   └── index.css
+│   ├── tailwind.config.js
+│   ├── index.html
+│   └── package.json
+├── docker-compose.yml
+├── .gitignore
+└── DIARIO.md
+```
+
+---
+
+## Sesión 8 — Billing Stopper en Google Cloud
+
+### Lo que hemos construido
+
+- **Cloud Run function `kokito-billing-stopper`** que deshabilita la facturación automáticamente al superar el presupuesto
+- **Permisos IAM** configurados correctamente para que la función pueda modificar la facturación
+- **Presupuesto de €10** en Google Cloud Billing conectado via Pub/Sub a la función
+- Verificación real: la función desvinculó la cuenta de facturación correctamente al simular un mensaje de presupuesto superado
+
+---
+
+### Pasos realizados
+
+#### 1. Habilitar la Cloud Billing API
+```bash
+gcloud services enable cloudbilling.googleapis.com --project=kokito
+```
+
+---
+
+#### 2. Permisos IAM
+
+La service account que ejecuta Cloud Run necesita permisos en dos niveles:
+
+**A nivel de proyecto:**
+```bash
+gcloud projects add-iam-policy-binding kokito \
+  --member="serviceAccount:$(gcloud iam service-accounts list --project=kokito --filter='displayName:Default' --format='value(email)' | head -1)" \
+  --role="roles/billing.projectManager"
+```
+
+**A nivel de cuenta de facturación:**
+```bash
+gcloud billing accounts add-iam-policy-binding $(gcloud billing accounts list --format='value(name)') \
+  --member="serviceAccount:344097171695-compute@developer.gserviceaccount.com" \
+  --role="roles/billing.user"
+```
+
+El rol `roles/billing.projectManager` no está soportado a nivel de billing account — hay que usar `roles/billing.user`.
+
+---
+
+#### 3. Código de la función — main.py
+```python
+import base64
+import json
+from googleapiclient import discovery
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route("/", methods=["POST"])
+def stop_billing(request):
+    envelope = request.get_json()
+    pubsub_message = envelope["message"]
+    pubsub_data = base64.b64decode(pubsub_message["data"]).decode("utf-8")
+    budget_data = json.loads(pubsub_data)
+    cost = budget_data.get("costAmount", 0)
+    budget = budget_data.get("budgetAmount", 1)
+
+    if cost <= budget:
+        return "OK"
+
+    project_id = budget_data.get("projectId")
+    billing = discovery.build("cloudbilling", "v1")
+    billing.projects().updateBillingInfo(
+        name=f"projects/{project_id}",
+        body={"billingAccountName": ""}
+    ).execute()
+    return "Billing disabled"
+```
+
+**Conceptos clave:**
+
+- La función necesita ser una app Flask con `app = Flask(__name__)` porque Cloud Run con Buildpacks busca una variable `app` en `main.py`. Sin ella el worker crashea con `Failed to find attribute 'app' in 'main'`
+- `stop_billing` debe recibir `request` como parámetro aunque use el objeto `request` de Flask globalmente — sin él lanza `TypeError: stop_billing() takes 0 positional arguments but 1 was given`
+- `billingAccountName: ""` — pasar una cadena vacía es la forma de desvincular la cuenta de facturación via la API
+
+---
+
+#### 4. requirements.txt
+```
+google-api-python-client
+flask
+```
+
+---
+
+#### 5. Conexión con el presupuesto via Pub/Sub
+
+El presupuesto `kokito-limite` (€10 mensual) ya tenía configurado el topic `projects/kokito/topics/kokito-presupuesto`. La suscripción que conecta ese topic con la Cloud Run function se verificó con:
+```bash
+gcloud pubsub subscriptions list --project=kokito
+```
+
+La suscripción `eventarc-europe-west1-trigger-xg1htbue-sub-402` está activa y apunta a la URL de la función con autenticación OIDC.
+
+---
+
+#### 6. Errores encontrados
+
+**`Failed to find attribute 'app' in 'main'`** — Cloud Run con Buildpacks espera una app Flask. Solución: añadir `app = Flask(__name__)` y el decorador `@app.route`.
+
+**`roles/billing.projectManager is not supported for this resource`** — ese rol no existe a nivel de billing account. Solución: usar `roles/billing.user`.
+
+**`TypeError: stop_billing() takes 0 positional arguments`** — la función definida con `@app.route` necesita `request` como parámetro explícito cuando se usa con Cloud Run Functions framework.
+
+**Worker SIGKILL / out of memory** — la instancia de Cloud Run tenía poca memoria asignada. Solución:
+```bash
+gcloud run services update kokito-billing-stopper \
+  --memory=512Mi \
+  --region=europe-west1 \
+  --project=kokito
+```

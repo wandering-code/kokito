@@ -1,0 +1,176 @@
+diff --git a/DIARIO.md b/DIARIO.md
+index ceb4dc2..e7b6c0d 100644
+--- a/DIARIO.md
++++ b/DIARIO.md
+@@ -1230,4 +1230,22 @@ Opciones planteadas:
+ 
+ - **Nivel 2 — Estructura**: detectar párrafos y listas para pausas más naturales
+ - **Nivel 3 — IA**: usar OpenAI para reformular el texto pensado para ser escuchado
+-- **Deploy**: subir el proyecto a producción (Render/Railway + Vercel)
+\ No newline at end of file
++- **Deploy**: subir el proyecto a producción (Render/Railway + Vercel)
++
++---
++
++### Decisión — Text-to-Speech a largo plazo
++
++Edge-tts es gratuito pero tiene poca variedad de voces en español de España (solo una voz masculina: `es-ES-AlvaroNeural`).
++
++**Opción seleccionada para cuando se necesite más calidad: Google Cloud TTS**
++- Capa gratuita: 1 millón de caracteres al mes (~500 páginas)
++- Voces Neural2 en español con calidad notablemente superior a edge-tts
++- A partir de la capa gratuita: $16 por millón de caracteres adicionales
++
++**Limitación identificada:** con 4 usuarios convirtiendo libros enteros (~300 páginas cada uno) se superarían fácilmente los 500 páginas gratuitas al mes. En ese caso habría que valorar:
++- Poner un límite de páginas por usuario al mes
++- Asumir un coste pequeño compartido entre los usuarios
++- Explorar alternativas open source como Coqui TTS (corre en local, sin coste por caracteres, pero requiere más recursos de servidor)
++
++**Por ahora** se mantiene edge-tts con `es-ES-AlvaroNeural` hasta que el deploy esté hecho y se pueda evaluar el uso real.
+\ No newline at end of file
+diff --git a/backend/main.py b/backend/main.py
+index a7d13ab..9d7623a 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -1,4 +1,4 @@
+-from fastapi import FastAPI, UploadFile, File
++from fastapi import FastAPI, UploadFile, File, Form
+ from fastapi.responses import FileResponse
+ from fastapi.middleware.cors import CORSMiddleware
+ from celery.result import AsyncResult
+@@ -24,9 +24,9 @@ def health_check():
+     return {"mensaje": "Servicio Api REST activo"}
+ 
+ @app.post("/convertir")
+-async def convertir(pdf: UploadFile = File(...)):
++async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...)):
+     pdf_bytes = await pdf.read()
+-    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename)
++    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor)
+     return {"tarea_id": tarea.id}
+ 
+ @app.get("/resultado/{tarea_id}")
+diff --git a/backend/tasks.py b/backend/tasks.py
+index 89de9bd..ba414ea 100644
+--- a/backend/tasks.py
++++ b/backend/tasks.py
+@@ -1,56 +1,12 @@
+ from celery_app import celery_app
+ from database import SessionLocal, Conversion
+-import pdfplumber, edge_tts, tempfile, asyncio, os, re
+-
+-VOICE = "es-ES-AlvaroNeural"
+-MP3_DIR = "/tmp/kokito"
+-
+-def limpiar_texto(texto: str) -> str:
+-    # Limpiando pausas tras títulos
+-    texto_limpio = re.sub(r"\n([A-ZÁÉÍÓÚÑÜ]+)\n", r". \1. ", texto)
+-
+-    # Limpiando saltos de línea
+-    texto_limpio = re.sub(r"\n{2,}", ". ", texto_limpio)
+-    texto_limpio = re.sub(r"\s+", " ", re.sub(r"\n", " ", texto_limpio))
+-
+-    # Limpiando la paginación y las URLs
+-    texto_limpio = re.sub(r"-?\s*Página\s*\d+", "", texto_limpio)
+-    texto_limpio = re.sub(r"www\.\S+", "", texto_limpio)
+-
+-    return texto_limpio
++from tts.edge import process_file_with_edge
++from tts.google import process_file_with_google
+ 
+ @celery_app.task(bind=True)
+-def convertir_pdf(self, pdf_bytes: bytes, filename: str) -> str:
+-    os.makedirs(MP3_DIR, exist_ok=True)
+-
+-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+-        tmp_pdf.write(pdf_bytes)
+-        tmp_pdf_path = tmp_pdf.name
+-
+-    with pdfplumber.open(tmp_pdf_path) as file:
+-        text = ""
+-        
+-        # Ahora mismo solo lee las páginas 11 y 12 de El imperio final
+-        paginas = file.pages[10:12]
+-        total = len(paginas)
+-        for i, page in enumerate(paginas):
+-            text += page.extract_text()
+-            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+-
+-    if not text:
+-        raise ValueError("El PDF no contiene texto extraíble")
+-
+-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
+-        tmp_mp3_path = tmp_mp3.name
+-
+-    text = limpiar_texto(text)
+-
+-    asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
+-
+-    db = SessionLocal()
+-    conversion = Conversion(nombre=filename, caracteres=len(text))
+-    db.add(conversion)
+-    db.commit()
+-    db.close()
+-
+-    return tmp_mp3_path
+\ No newline at end of file
++def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str) -> str:
++    print("Tratando PDF con proveedor de " + proveedor)
++    if proveedor == "edge":
++        return process_file_with_edge(self, pdf_bytes, filename)
++    elif proveedor == "google":
++        return process_file_with_google(self, pdf_bytes, filename)
+\ No newline at end of file
+diff --git a/frontend/src/App.jsx b/frontend/src/App.jsx
+index 8ba80fd..4fb3dd5 100644
+--- a/frontend/src/App.jsx
++++ b/frontend/src/App.jsx
+@@ -4,6 +4,7 @@ const API = "http://localhost:8000"
+ 
+ function App() {
+   const [estado, setEstado] = useState("inicial")
++  const [proveedor, setProveedor] = useState("edge")
+   const [tareaId, setTareaId] = useState(null)
+   const [mp3Url, setMp3Url] = useState(null)
+   const [error, setError] = useState(null)
+@@ -18,6 +19,7 @@ function App() {
+ 
+     const formData = new FormData()
+     formData.append("pdf", archivo)
++    formData.append("proveedor", proveedor)
+ 
+     const res = await fetch(`${API}/convertir`, {
+       method: "POST",
+@@ -61,6 +63,32 @@ function App() {
+ 
+         {estado === "inicial" && (
+           <div className="w-full flex flex-col items-center gap-4">
++            <div className="w-full flex flex-col gap-2">
++            <span className="text-sm text-gray-400">Selecciona un agente:</span>
++            <div className="w-full flex rounded-xl overflow-hidden border border-gray-700">
++              <button
++                onClick={() => setProveedor("edge")}
++                className={`flex-1 py-2 text-sm font-medium transition ${
++                  proveedor === "edge"
++                    ? "bg-blue-600 text-white"
++                    : "bg-gray-800 text-gray-400 hover:text-white"
++                }`}
++              >
++                Edge TTS
++              </button>
++              <button
++                onClick={() => setProveedor("google")}
++                className={`flex-1 py-2 text-sm font-medium transition ${
++                  proveedor === "google"
++                    ? "bg-blue-600 text-white"
++                    : "bg-gray-800 text-gray-400 hover:text-white"
++                }`}
++              >
++                Google TTS
++              </button>
++            </div>
++          </div>
++
+             <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-8 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
+               <span className="text-4xl">📄</span>
+               <span className="text-sm">Haz clic para seleccionar un PDF</span>
