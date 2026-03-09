@@ -1844,3 +1844,197 @@ fetch(`${API}/estadisticas`)
 **`FileNotFoundError: ffprobe`** — `pydub` necesita `ffmpeg` instalado en el sistema para procesar MP3. Solución: añadir `apt-get install -y ffmpeg` al `Dockerfile`.
 
 ---
+
+## Sesión 10 — Ajustes de voz y conteo de caracteres por proveedor
+
+### Lo que hemos construido
+
+- **Voz actualizada a `es-ES-Chirp3-HD-Umbriel`** tras comparar varias opciones
+- **Columna `proveedor`** añadida a la tabla `conversiones` para distinguir el origen de cada conversión
+- **Endpoint `/estadisticas` actualizado** para contar solo los caracteres procesados con Google TTS
+
+---
+
+### Cambios realizados
+
+#### Selección de voz
+
+Se probaron las siguientes voces masculinas adicionales: `es-ES-Chirp3-HD-Algieba`, `es-ES-Chirp3-HD-Alnilam`, `es-ES-Chirp3-HD-Umbriel`, `es-ES-Chirp3-HD-Algenib`, `es-ES-Chirp3-HD-Schedar` y `es-ES-Studio-F`. También se exploró SSML para mejorar la naturalidad, pero las voces Chirp3 HD tienen soporte limitado y Studio-F no soporta `pitch` ni `emphasis`. La voz seleccionada finalmente es **`es-ES-Chirp3-HD-Umbriel`**.
+
+#### Columna proveedor en BBDD
+
+Se añadió `proveedor` al modelo `Conversion` en `database.py`:
+```python
+proveedor = Column(String, nullable=True)
+```
+
+Y se pasa al guardar en cada proveedor:
+```python
+# edge.py
+conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="edge")
+
+# google.py
+conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="google")
+```
+
+#### Estadísticas filtradas por proveedor
+```python
+caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
+    Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+    Conversion.proveedor == "google"
+).scalar() or 0
+```
+
+---
+
+### Notas
+
+- Edge TTS es gratuito porque usa el endpoint interno de Microsoft Edge para lectura web. No es una API oficial y puede dejar de funcionar en cualquier momento — válido para desarrollo pero no recomendable para producción.
+- Las voces Chirp3 HD cuestan $30/millón de caracteres fuera de la capa gratuita. Con 1 millón gratuito al mes caben aproximadamente 2 libros del tamaño de El Imperio Final sin coste.
+- Para cambiar temporalmente el número de páginas a procesar, modificar el slice `file.pages[:100]` en `tts/edge.py` y `tts/google.py`.## Sesión 10 — Ajustes de voz y conteo de caracteres por proveedor
+
+### Lo que hemos construido
+
+- **Voz actualizada a `es-ES-Chirp3-HD-Umbriel`** tras comparar varias opciones
+- **Columna `proveedor`** añadida a la tabla `conversiones` para distinguir el origen de cada conversión
+- **Endpoint `/estadisticas` actualizado** para contar solo los caracteres procesados con Google TTS
+
+---
+
+### Cambios realizados
+
+#### Selección de voz
+
+Se probaron las siguientes voces masculinas adicionales: `es-ES-Chirp3-HD-Algieba`, `es-ES-Chirp3-HD-Alnilam`, `es-ES-Chirp3-HD-Umbriel`, `es-ES-Chirp3-HD-Algenib`, `es-ES-Chirp3-HD-Schedar` y `es-ES-Studio-F`. También se exploró SSML para mejorar la naturalidad, pero las voces Chirp3 HD tienen soporte limitado y Studio-F no soporta `pitch` ni `emphasis`. La voz seleccionada finalmente es **`es-ES-Chirp3-HD-Umbriel`**.
+
+#### Columna proveedor en BBDD
+
+Se añadió `proveedor` al modelo `Conversion` en `database.py`:
+```python
+proveedor = Column(String, nullable=True)
+```
+
+Y se pasa al guardar en cada proveedor:
+```python
+# edge.py
+conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="edge")
+
+# google.py
+conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="google")
+```
+
+#### Estadísticas filtradas por proveedor
+```python
+caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
+    Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+    Conversion.proveedor == "google"
+).scalar() or 0
+```
+
+---
+
+### Notas
+
+- Edge TTS es gratuito porque usa el endpoint interno de Microsoft Edge para lectura web. No es una API oficial y puede dejar de funcionar en cualquier momento — válido para desarrollo pero no recomendable para producción.
+- Las voces Chirp3 HD cuestan $30/millón de caracteres fuera de la capa gratuita. Con 1 millón gratuito al mes caben aproximadamente 2 libros del tamaño de El Imperio Final sin coste.
+- Para cambiar temporalmente el número de páginas a procesar, modificar el slice `file.pages[:100]` en `tts/edge.py` y `tts/google.py`.
+
+---
+
+## Sesión 11 — Paralelización de Edge TTS y optimización de velocidad
+
+### Lo que hemos construido
+
+- **Paralelización de Edge TTS** con concurrencia limitada via semáforo
+- **Progreso real en dos fases** — extracción de texto (0-50%) y síntesis de audio (50-100%)
+- **Reintento automático** de fragmentos fallidos hasta 3 veces
+- **Semáforo óptimo establecido en 15** — 20 causa errores 503 de Microsoft
+
+---
+
+### Pasos realizados
+
+#### 1. Paralelización en edge.py
+
+Se reemplazó el procesado secuencial por concurrencia limitada con `asyncio.Semaphore`. El límite óptimo probado es 15 — con 20 Microsoft devuelve `503 OriginTimeout`:
+```python
+async def procesar_audio(fragmentos: list[str], task_self, total_paginas: int) -> list[str]:
+    semaforo = asyncio.Semaphore(15)
+    rutas = []
+    completados = [0]
+    total_fragmentos = len(fragmentos)
+
+    async def sintetizar(i, fragmento):
+        ruta = os.path.join(MP3_DIR, f"fragmento_{i}_{os.getpid()}.mp3")
+        async with semaforo:
+            for intento in range(3):
+                try:
+                    await edge_tts.Communicate(fragmento, VOICE).save(ruta)
+                    break
+                except Exception:
+                    if intento == 2:
+                        raise
+                    await asyncio.sleep(1)
+        completados[0] += 1
+        porcentaje = 50 + int((completados[0] / total_fragmentos) * 50)
+        task_self.update_state(state="PROGRESS", meta={"pagina": total_paginas, "total": total_paginas, "porcentaje_override": porcentaje})
+        return ruta
+
+    tareas = [sintetizar(i, f) for i, f in enumerate(fragmentos)]
+    return await asyncio.gather(*tareas)
+```
+
+**Tiempo resultante: ~2 minutos para 100 páginas.**
+
+---
+
+#### 2. Progreso en dos fases
+
+Tanto `edge.py` como `google.py` reportan ahora progreso en dos fases:
+
+- **0-50%** — extracción de texto, página a página
+- **50-100%** — síntesis de audio, fragmento a fragmento
+
+En `main.py` se lee `porcentaje_override` si existe:
+```python
+elif tarea.state == "PROGRESS":
+    info = tarea.info
+    if "porcentaje_override" in info:
+        porcentaje = info["porcentaje_override"]
+    else:
+        pagina = info.get("pagina", 0)
+        total = info.get("total", 1)
+        porcentaje = int((pagina / total) * 50)
+    return {"estado": "progreso", "porcentaje": porcentaje}
+```
+
+---
+
+#### 3. Reintento automático
+
+Si Microsoft devuelve un error en un fragmento, se reintenta hasta 3 veces con 1 segundo de espera entre intentos antes de fallar definitivamente. Esto evita que un error puntual de red rompa toda la conversión.
+
+---
+
+### Investigación de alternativas TTS
+
+Se investigaron precios y calidad de alternativas a Google TTS:
+
+| Servicio | Capa gratuita | Precio después | Notas |
+|---|---|---|---|
+| Edge TTS | Ilimitado | Gratis | No oficial, puede fallar |
+| Google Chirp3 HD | 1M chars/mes | $30/millón | Voz Umbriel seleccionada |
+| Google Neural2 | 1M chars/mes | $16/millón | Soporta SSML completo |
+| Azure TTS Neural | 5M chars/mes | $16/millón | API oficial detrás de Edge TTS |
+| Amazon Polly Neural | 1M chars/mes (1 año) | $16/millón | Voz Sergio es-ES pendiente de probar |
+| ElevenLabs Creator | 100K chars/mes | $22/mes | Mejor calidad narrativa, muy caro |
+
+**Pendiente:** probar la voz **Sergio (Amazon Polly Neural, es-ES)** para comparar con Umbriel.
+
+---
+
+### Notas
+
+- Correr modelos TTS locales (Coqui, Piper) en un Pentium doméstico no es viable — tardaría horas por libro. Se necesita CPU moderna de 8 núcleos o GPU dedicada.
+- Azure TTS es la opción más interesante a largo plazo: mismas voces que Edge TTS pero API oficial con 5M caracteres gratuitos al mes.
+- ElevenLabs tiene la mejor calidad narrativa del mercado pero el coste es prohibitivo para uso con varios usuarios.

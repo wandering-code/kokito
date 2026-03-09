@@ -15,6 +15,7 @@ class Conversion(Base):
     id         = Column(Integer, primary_key=True, index=True)
     nombre     = Column(String, nullable=False)
     caracteres = Column(Integer)
+    proveedor  = Column(String, nullable=True)
     creado_en  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 def crear_tablas():

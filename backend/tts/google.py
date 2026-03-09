@@ -45,7 +45,9 @@ def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
     client = texttospeech.TextToSpeechClient()
     voice = texttospeech.VoiceSelectionParams(
         language_code="es-ES",
-        name="es-ES-Chirp3-HD-Charon"
+#        name="es-ES-Chirp3-HD-Charon"
+#        name="es-ES-Chirp3-HD-Umbriel"
+        name="es-ES-Neural2-G"
     )
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3
@@ -53,16 +55,18 @@ def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
 
     fragmentos = dividir_texto(text)
     segmentos = []
+    completados = 0
     for fragmento in fragmentos:
         synthesis_input = texttospeech.SynthesisInput(text=fragmento)
         response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
+            input=synthesis_input, voice=voice, audio_config=audio_config
         )
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp:
             tmp.write(response.audio_content)
             segmentos.append(AudioSegment.from_mp3(tmp.name))
+        completados += 1
+        porcentaje = 50 + int((completados / len(fragmentos)) * 50)
+        self.update_state(state="PROGRESS", meta={"pagina": total, "total": total, "porcentaje_override": porcentaje})
 
     audio_final = segmentos[0]
     for segmento in segmentos[1:]:
@@ -74,7 +78,7 @@ def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
     audio_final.export(tmp_mp3_path, format="mp3")
 
     db = SessionLocal()
-    conversion = Conversion(nombre=filename, caracteres=len(text))
+    conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="google")
     db.add(conversion)
     db.commit()
     db.close()

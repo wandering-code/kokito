@@ -42,9 +42,13 @@ def resultado(tarea_id: str):
     elif tarea.state == "FAILURE":
         return {"estado": "error", "detalle": str(tarea.result)}
     elif tarea.state == "PROGRESS":
-        pagina = tarea.info.get("pagina", 0)
-        total = tarea.info.get("total", 1)
-        porcentaje = int((pagina / total) * 100)
+        info = tarea.info
+        if "porcentaje_override" in info:
+            porcentaje = info["porcentaje_override"]
+        else:
+            pagina = info.get("pagina", 0)
+            total = info.get("total", 1)
+            porcentaje = int((pagina / total) * 50)
         return {"estado": "progreso", "porcentaje": porcentaje}
     
 @app.get("/estadisticas")
@@ -52,7 +56,8 @@ def estadisticas():
     db = SessionLocal()
     ahora = datetime.now(timezone.utc)
     caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
-        Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        Conversion.proveedor == "google"
     ).scalar() or 0
     db.close()
     return {
