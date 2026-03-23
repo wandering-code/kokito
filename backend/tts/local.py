@@ -35,7 +35,7 @@ def dividir_texto_local(texto: str, max_chars: int = 200) -> list[str]:
 
     return fragmentos
 
-def process_file_with_local(self, pdf_bytes: bytes, filename: str, voz_bytes: bytes) -> str:
+def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_fin=None, voz_bytes=b"") -> str:
     import pdfplumber
     from tts.text_utils import limpiar_texto
     from pydub import AudioSegment
@@ -48,7 +48,8 @@ def process_file_with_local(self, pdf_bytes: bytes, filename: str, voz_bytes: by
 
     with pdfplumber.open(tmp_pdf_path) as file:
         text = ""
-        paginas = file.pages
+        fin = (pagina_fin + 1) if pagina_fin is not None else None
+        paginas = file.pages[pagina_inicio:fin]
         total = len(paginas)
         for i, page in enumerate(paginas):
             texto_pagina = page.extract_text()

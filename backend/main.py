@@ -82,7 +82,8 @@ async def convertir(
     titulo: str = Form(...),
     autor: str = Form(""),
     paginas_por_parte: int = Form(50),
-    proveedor: str = Form("edge")
+    proveedor: str = Form("edge"),
+    voz: UploadFile = File(None)
 ):
     pdf_bytes = await pdf.read()
     db = SessionLocal()
@@ -106,7 +107,8 @@ async def convertir(
         partes = db.query(Parte).filter(Parte.libro_id == libro.id).order_by(Parte.numero_parte).all()
         primera_parte = partes[0]
 
-        tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor, primera_parte.id)
+        voz_bytes = await voz.read() if voz else b""
+        tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor, primera_parte.id, voz_bytes)
 
         # Actualizar estado de la primera parte a "procesando"
         primera_parte.estado = EstadoParte.procesando
@@ -248,3 +250,16 @@ def logout(response: Response):
 @app.get("/me")
 def me(usuario: Usuario = Depends(obtener_usuario_actual)):
     return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
+
+@app.patch("/libros/{libro_id}/visible")
+def cambiar_visibilidad(libro_id: int, visible: bool):
+    db = SessionLocal()
+    try:
+        libro = db.query(Libro).filter(Libro.id == libro_id).first()
+        if not libro:
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
+        libro.visible = visible
+        db.commit()
+        return {"id": libro.id, "visible": libro.visible}
+    finally:
+        db.close()

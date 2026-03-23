@@ -4,7 +4,7 @@ from tts.edge import process_file_with_edge
 from tts.google import process_file_with_google
 
 @celery_app.task(bind=True)
-def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_id: int) -> str:
+def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -> str:
     db = SessionLocal()
     parte = db.query(Parte).filter(Parte.id == parte_id).first()
 
@@ -25,6 +25,13 @@ def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_i
             ruta_mp3 = process_file_with_google(
                 self, pdf_bytes, filename,
                 parte.pagina_inicio, parte.pagina_fin
+            )
+        elif proveedor == "local":
+            from tts.local import process_file_with_local
+            ruta_mp3 = process_file_with_local(
+                self, pdf_bytes, filename,
+                parte.pagina_inicio, parte.pagina_fin,
+                voz_bytes
             )
         else:
             raise ValueError(f"Proveedor desconocido: {proveedor}")
