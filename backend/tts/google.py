@@ -38,7 +38,7 @@ def sintetizar_fragmento(client, voice, audio_config, i, fragmento):
             import time
             time.sleep(2)
 
-def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
+def process_file_with_google(self, pdf_bytes: bytes, filename: str, pagina_inicio: int = 0, pagina_fin: int = None) -> str:
     os.makedirs(MP3_DIR, exist_ok=True)
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
@@ -47,7 +47,8 @@ def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
 
     with pdfplumber.open(tmp_pdf_path) as file:
         text = ""
-        paginas = file.pages[:100]
+        fin = (pagina_fin + 1) if pagina_fin is not None else None
+        paginas = file.pages[pagina_inicio:fin]
         total = len(paginas)
         for i, page in enumerate(paginas):
             text += page.extract_text()
