@@ -12,6 +12,8 @@ from fastapi import Response, Depends
 from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin
 from database import Usuario
 import os
+from database import ProgresoUsuario
+from datetime import datetime, timezone
 
 app = FastAPI()
 
@@ -327,5 +329,59 @@ def audio_parte(parte_id: int):
         if not parte.ruta_mp3 or not os.path.exists(parte.ruta_mp3):
             raise HTTPException(status_code=404, detail="Archivo de audio no encontrado")
         return FileResponse(parte.ruta_mp3, media_type="audio/mpeg")
+    finally:
+        db.close()
+
+
+@app.post("/progreso")
+def guardar_progreso(
+    libro_id: int = Form(...),
+    parte_id: int = Form(...),
+    segundo_actual: int = Form(...),
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        progreso = db.query(ProgresoUsuario).filter(
+            ProgresoUsuario.usuario_id == usuario.id,
+            ProgresoUsuario.libro_id == libro_id
+        ).first()
+
+        if progreso:
+            progreso.parte_id = parte_id
+            progreso.segundo_actual = segundo_actual
+            progreso.fecha_actualizacion = datetime.now(timezone.utc)
+        else:
+            progreso = ProgresoUsuario(
+                usuario_id=usuario.id,
+                libro_id=libro_id,
+                parte_id=parte_id,
+                segundo_actual=segundo_actual
+            )
+            db.add(progreso)
+
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.get("/progreso/{libro_id}")
+def obtener_progreso(libro_id: int, usuario: Usuario = Depends(obtener_usuario_actual)):
+    db = SessionLocal()
+    try:
+        progreso = db.query(ProgresoUsuario).filter(
+            ProgresoUsuario.usuario_id == usuario.id,
+            ProgresoUsuario.libro_id == libro_id
+        ).first()
+
+        if not progreso:
+            return {"tiene_progreso": False}
+
+        return {
+            "tiene_progreso": True,
+            "parte_id": progreso.parte_id,
+            "segundo_actual": progreso.segundo_actual
+        }
     finally:
         db.close()
