@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from tasks import convertir_pdf
 from celery_app import celery_app
-from database import crear_tablas, SessionLocal, Conversion
+from database import SessionLocal, Conversion
 from sqlalchemy import func
 from datetime import datetime, timezone
 
@@ -17,18 +17,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def startup():
-    crear_tablas()
-
 @app.get("/health_check")
 def health_check():
     return {"mensaje": "Servicio Api REST activo"}
 
 @app.post("/convertir")
-async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...)):
+async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...), voz: UploadFile = File(None)):
     pdf_bytes = await pdf.read()
-    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor)
+    voz_bytes = await voz.read() if voz else b""
+    tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor, voz_bytes)
     return {"tarea_id": tarea.id}
 
 @app.get("/resultado/{tarea_id}")

@@ -10,6 +10,7 @@ function App() {
   const [error, setError] = useState(null)
   const [progreso, setProgreso] = useState(0)
   const [estadisticas, setEstadisticas] = useState(null)
+  const [vozArchivo, setVozArchivo] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/estadisticas`)
@@ -27,6 +28,8 @@ function App() {
     const formData = new FormData()
     formData.append("pdf", archivo)
     formData.append("proveedor", proveedor)
+
+    if (vozArchivo) formData.append("voz", vozArchivo)
 
     const res = await fetch(`${API}/convertir`, {
       method: "POST",
@@ -104,8 +107,36 @@ function App() {
               >
                 Google TTS
               </button>
+              <button
+                onClick={() => setProveedor("local")}
+                className={`flex-1 py-2 text-sm font-medium transition ${
+                  proveedor === "local"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:text-white"
+                }`}
+              >
+                Local (GPU)
+              </button>
             </div>
           </div>
+
+          {proveedor === "local" && (
+            <div className="w-full flex flex-col gap-2">
+              <span className="text-sm text-gray-400">Archivo de voz de referencia:</span>
+              <label className="w-full cursor-pointer border border-gray-700 hover:border-blue-500 transition rounded-xl px-4 py-3 flex items-center gap-3 text-gray-400 hover:text-blue-400">
+                <span className="text-xl">🎙️</span>
+                <span className="text-sm truncate">
+                  {vozArchivo ? vozArchivo.name : "Selecciona un MP3 o WAV"}
+                </span>
+                <input
+                  type="file"
+                  accept=".mp3,.wav"
+                  className="hidden"
+                  onChange={e => setVozArchivo(e.target.files[0])}
+                />
+              </label>
+            </div>
+          )}
 
             <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-8 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
               <span className="text-4xl">📄</span>

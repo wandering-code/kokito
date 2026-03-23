@@ -1,10 +1,8 @@
 # Diario de desarrollo — Kokito
 
-## Inicio rápido
+---
 
-### Preparación del entorno (solo la primera vez o si hay problemas)
-- nvm y pyenv se cargan solos al abrir la terminal gracias al `.zshrc`
-- Si `npm` o `python3` no se encuentran, ejecutar `source ~/.zshrc` y reintentar
+## Inicio rápido
 
 ### Arrancar el proyecto
 **Terminal 1 — Backend y servicios:**
@@ -19,7 +17,7 @@ cd ~/repos/kokito/frontend
 npm run dev
 ```
 
-Frontend disponible en `http://localhost:5173`  
+Frontend disponible en `http://localhost:5173`
 Backend disponible en `http://localhost:8000`
 
 ### Parar el proyecto
@@ -28,19 +26,267 @@ Backend disponible en `http://localhost:8000`
 
 ### Comandos git del día a día
 ```bash
-git status                        # Ver qué archivos han cambiado
-git add .                         # Añadir todos los cambios al stage
-git add nombre_archivo            # Añadir un archivo concreto
+git status                         # Ver qué archivos han cambiado
+git add .                          # Añadir todos los cambios al stage
+git add nombre_archivo             # Añadir un archivo concreto
 git commit -m "mensaje del commit" # Guardar los cambios con un mensaje
-git push                          # Subir los commits a GitHub
-git log --oneline                 # Ver el historial de commits resumido
-git diff                          # Ver los cambios no añadidos al stage
+git push                           # Subir los commits a GitHub
+git log --oneline                  # Ver el historial de commits resumido
+git diff                           # Ver los cambios no añadidos al stage
 ```
 
-### Levantar frontend
-```bash
-npm run dev
+---
+
+## Regla permanente — Proveedor TTS
+
+**Durante el desarrollo se usa siempre Edge TTS** (gratuito, rápido para pruebas).
+
+**Todo el código debe ser agnóstico al proveedor.** Cualquier mejora, nueva funcionalidad
+o cambio debe funcionar exactamente igual con el TTS local del sobremesa (Coqui XTTS v2)
+sin modificar nada salvo el parámetro `proveedor`.
+
+El módulo `tts/` ya está diseñado para esto — cada proveedor es un archivo independiente
+y `tasks.py` solo decide cuál usar. Mantener siempre esta separación.
+
+Antes de dar algo por terminado, preguntarse: *¿esto funcionaría igual pasando `proveedor="local"`?*
+
+---
+
+## Estado actual del proyecto
+
+### Stack en uso
+| Capa | Tecnología |
+|---|---|
+| Backend | Python + FastAPI + Uvicorn |
+| Extracción PDF | pdfplumber |
+| Text-to-Speech | Edge TTS (desarrollo) · Google TTS Chirp3 HD (candidato producción) · TTS local con GPU (en desarrollo) |
+| Procesamiento async | Celery + Redis |
+| Base de datos | PostgreSQL + SQLAlchemy |
+| Frontend | React + Vite + Tailwind CSS v3 |
+| Contenedores | Docker + Docker Compose |
+| Deploy futuro | Mini PC propio (servidor 24/7) |
+| Almacenamiento futuro | Cloudflare R2 |
+
+### Estructura actual del proyecto
 ```
+kokito/
+├── backend/
+│   ├── tts/
+│   │   ├── edge.py
+│   │   ├── google.py
+│   │   └── text_utils.py
+│   ├── main.py
+│   ├── tasks.py
+│   ├── celery_app.py
+│   ├── database.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   └── index.css
+│   ├── tailwind.config.js
+│   ├── index.html
+│   └── package.json
+├── docker-compose.yml
+├── .gitignore
+└── DIARIO.md
+```
+
+### Lo que funciona hoy
+- API REST con FastAPI: endpoints `/health_check`, `/convertir`, `/resultado/{tarea_id}`, `/estadisticas`
+- Conversión PDF → MP3 con Edge TTS (paralelización con semáforo de 15, ~2 min/100 páginas)
+- Conversión PDF → MP3 con Google TTS (voz `es-ES-Chirp3-HD-Umbriel`, fragmentación automática a 4800 bytes)
+- Cola de tareas con Celery + Redis, progreso en dos fases (0-50% extracción, 50-100% síntesis)
+- Barra de progreso en tiempo real en el frontend
+- Registro de conversiones en PostgreSQL con campo `proveedor`
+- Endpoint `/estadisticas` con consumo mensual de caracteres Google TTS
+- Billing Stopper en Google Cloud Run (se desvincula la facturación al superar €10/mes)
+- Frontend React con selector de proveedor Edge / Google / Local (GPU), reproductor de audio y descarga
+- Servidor TTS local en el sobremesa Windows (FastAPI en puerto 8001, accesible desde el Mac en 192.168.1.51)
+- `tts/local.py` en Kokito que llama al sobremesa via HTTP — pendiente de depurar concatenación de MP3
+
+---
+
+## Hoja de ruta — fases pendientes
+
+### Próxima — Decisión de proveedor TTS y rediseño de BBDD
+
+**Pendiente de decidir:** proveedor TTS para producción.
+- **Google Standard** — $4/millón, 4M caracteres gratuitos/mes (~8 libros). Buena calidad, ya integrado parcialmente.
+- **Azure TTS Neural** — $16/millón, 5M caracteres gratuitos/mes (~10 libros). Mismas voces que Edge TTS pero API oficial. Más generoso en capa gratuita.
+- TTS local con XTTS v2 **descartado definitivamente** — inconsistente en español, inaceptable para audiolibros.
+
+Una vez decidido el proveedor, atacar el **rediseño de BBDD**:
+**Objetivo:** tener el sobremesa (RTX 3070, i7-11700F, 32 GB RAM, Windows limpio) sirviendo una API de TTS local de alta calidad, y conectarla a Kokito como tercer proveedor.
+
+**Hardware del sobremesa:**
+- GPU: NVIDIA GeForce RTX 3070 (8 GB VRAM)
+- CPU: Intel i7-11700F
+- RAM: 32 GB
+- SO: Windows 11
+- IP local: 192.168.1.51
+
+**Decisiones tomadas:**
+- Motor TTS: **Coqui XTTS v2** — mejor calidad narrativa, soporta clonado de voz
+- Piper TTS descartado — muy rápido pero suena plano y sin expresividad, no apto para audiolibros
+- Voz de referencia: `voz_elevenlabs_1.mp3` — capturada desde la demo de ElevenLabs
+- Parámetros óptimos: `temperature=0.7`, `repetition_penalty=5.0`
+- Velocidad: ~40 segundos por 150 palabras en RTX 3070 → ~5-6 horas por libro de 300 páginas procesando de noche
+- Comunicación: el worker de Kokito manda fragmentos de ~500 palabras uno a uno (síncrono) al sobremesa y concatena los MP3 recibidos
+- Las voces disponibles las selecciona el admin previamente; el usuario elige entre ellas en el frontend
+
+**Conclusión — TTS local descartado:**
+XTTS v2 no es viable para audiolibros en español. Los problemas son limitaciones del modelo, no de configuración: aceleración y agudización de voz en fragmentos largos, atascos en algunas frases, inconsistencia general inaceptable para escuchar un libro entero. Piper TTS también descartado — demasiado plano y robótico para narración.
+
+**Decisión pendiente:** elegir entre Google Standard ($4/millón, 4M gratuitos/mes ≈ 8 libros) y Azure TTS Neural ($16/millón, 5M gratuitos/mes ≈ 10 libros) según el volumen de consumo esperado entre los usuarios.
+
+---
+
+### Rediseño de la BBDD y modelo de datos completo
+**Objetivo:** pasar del modelo actual (tabla `conversiones` plana) al modelo definitivo que soporte libros, partes, usuarios y marcadores de posición.
+
+**Nuevas tablas:**
+```
+libros
+  id, titulo, hash_contenido, num_paginas, fecha_subida, subido_por
+
+partes
+  id, libro_id, numero_parte, pagina_inicio, pagina_fin,
+  estado (pendiente | procesando | listo | error),
+  ruta_mp3, proveedor, fecha_procesado
+
+usuarios
+  id, email, nombre, password_hash, rol (admin | usuario), fecha_registro
+
+progreso_usuario
+  id, usuario_id, libro_id, parte_actual, segundo_actual, fecha_actualizacion
+
+lista_deseos
+  id, usuario_id, libro_id, fecha_añadido
+
+solicitudes
+  id, usuario_id, titulo_solicitado, autor, notas,
+  estado (pendiente | aceptada | rechazada), fecha
+```
+
+**Pasos:**
+1. Diseñar el esquema completo antes de tocar código
+2. Crear los modelos SQLAlchemy para cada tabla
+3. Implementar migraciones con **Alembic** (equivalente a Liquibase/Flyway en Java)
+4. Verificar desde DBeaver que todas las tablas se crean correctamente
+5. Adaptar `tasks.py` para que guarde en `libros` y `partes` en lugar de `conversiones`
+
+**Conceptos nuevos:**
+- **Hash de contenido:** `hashlib.sha256` sobre los bytes del PDF. Detecta libros duplicados independientemente del nombre del archivo.
+- **Alembic:** herramienta de migraciones para SQLAlchemy. Genera scripts versionados que se pueden aplicar y revertir.
+
+---
+
+### Procesamiento por partes
+**Objetivo:** dividir el PDF en bloques independientes y procesarlos de forma separada para que el usuario pueda empezar a escuchar antes de que el libro esté completo.
+
+**Pasos:**
+1. Función `analizar_pdf(pdf_bytes)` → número de páginas, capítulos detectados, hash
+2. Función `dividir_en_partes(num_paginas, tamaño=50)` → lista de rangos `[(0,50), (50,100), ...]`
+3. Al subir un PDF: crear registro en `libros`, crear registros en `partes` con estado `pendiente`, encolar solo la parte elegida por el admin
+4. Al terminar una parte: guardar MP3 en R2, actualizar estado a `listo`
+5. Worker secundario procesa el resto en segundo plano (partes siguientes primero)
+6. Si el libro ya existe por hash: devolver partes ya procesadas sin reprocesar
+
+---
+
+### Almacenamiento en Cloudflare R2
+**Objetivo:** los MP3 generados se almacenan en R2 en lugar de en disco local, accesibles desde cualquier máquina.
+
+**Pasos:**
+1. Crear bucket en Cloudflare R2
+2. Generar API keys con permisos lectura/escritura
+3. Instalar `boto3` (R2 es compatible con la API S3 de Amazon)
+4. Función `subir_mp3_a_r2(ruta_local, nombre_objeto)` → URL pública
+5. Modificar `tasks.py` para subir cada parte a R2 al terminar
+6. Modificar `/resultado` para devolver URL de R2 en lugar de `FileResponse`
+7. Credenciales de R2 como variables de entorno (nunca en el repositorio)
+
+---
+
+### Panel de administración (frontend admin)
+**Objetivo:** interfaz separada solo para el administrador para gestionar libros, conversiones y solicitudes de usuarios.
+
+**Rutas del panel admin:**
+- `/admin` — dashboard: libros totales, partes pendientes, solicitudes sin atender, uso TTS del mes
+- `/admin/libros` — lista de todos los libros con estado de cada parte
+- `/admin/libros/nuevo` — subir PDF manualmente, elegir proveedor, lanzar conversión
+- `/admin/solicitudes` — solicitudes de usuarios con botones aceptar/rechazar
+- `/admin/usuarios` — lista de usuarios registrados
+
+**Pasos:**
+1. Instalar `react-router-dom` para gestionar rutas en el frontend
+2. Crear carpeta `frontend/src/pages/admin/` con componentes por ruta
+3. Layout de admin con barra lateral de navegación
+4. Página de subida de PDF con selector de proveedor y barra de progreso
+5. Página de solicitudes con estado y acciones
+6. Proteger rutas `/admin/*` verificando `rol === "admin"`
+
+**Notas:**
+- La subida de PDFs es manual (el admin lo hace desde este panel).
+- Las notificaciones de solicitudes nuevas se ven en el dashboard; push/email para más adelante.
+
+---
+
+### Frontend de usuarios (biblioteca y reproductor)
+**Objetivo:** interfaz para usuarios finales — biblioteca de audiolibros disponibles, reproductor con guardado de posición, solicitudes y perfil.
+
+**Rutas:**
+- `/` — biblioteca con todos los libros disponibles
+- `/libro/:id` — detalle del libro: partes disponibles, botón de reproducir
+- `/libro/:id/escuchar` — reproductor con guardado automático de posición
+- `/solicitudes` — formulario para pedir un libro + estado de solicitudes anteriores
+- `/perfil` — estadísticas: libros escuchados, tiempo total, lista de deseos
+
+**Pasos:**
+1. Componentes: `BibliotecaPage`, `LibroPage`, `ReproductorPage`, `SolicitudesPage`, `PerfilPage`
+2. Reproductor con guardado de posición cada 5 segundos via `PATCH /progreso`
+3. Biblioteca con filtros: todos / en progreso / completados / lista de deseos
+4. Formulario de solicitudes y listado de estado de las propias solicitudes
+5. Página de perfil con estadísticas del usuario
+
+---
+
+### Autenticación de usuarios
+**Objetivo:** login y registro con JWT, protección de rutas y gestión de roles (admin / usuario).
+
+**Pasos:**
+1. Instalar `python-jose` y `passlib` en el backend
+2. Endpoint `POST /registro` — crea usuario con contraseña hasheada con bcrypt
+3. Endpoint `POST /login` — devuelve JWT con `usuario_id` y `rol`
+4. Middleware FastAPI que verifica el JWT en cada petición protegida
+5. Frontend: guardar JWT en `localStorage`, enviarlo en cabecera `Authorization`
+6. Componente `<RutaProtegida>` que redirige a `/login` si no hay JWT válido
+7. Componente `<RutaAdmin>` que además verifica `rol === "admin"`
+
+**Conceptos nuevos:**
+- **JWT:** token firmado que el servidor emite al hacer login. El cliente lo envía en cada petición. El servidor verifica la firma sin consultar la BBDD. Equivalente a un token de sesión en Spring Security.
+- **Hashing de contraseñas:** nunca se guardan en texto plano. Se usa bcrypt, irreversible. Al hacer login se compara el hash.
+
+---
+
+### Deploy en el mini PC
+**Objetivo:** mover todo lo que corre en Docker en el Mac al mini PC como servidor 24/7.
+
+**Pasos:**
+1. Instalar Ubuntu Server 24.04 LTS en el mini PC
+2. Instalar Docker y Docker Compose
+3. Clonar el repositorio de GitHub
+4. Configurar `.env` con todas las variables de entorno
+5. `docker compose up -d` (modo daemon)
+6. `systemctl enable docker` para que arranque automáticamente
+7. Acceder desde cualquier dispositivo de la red local via IP del mini PC
+8. (Opcional) Dominio propio + HTTPS con Cloudflare Tunnel o nginx + Let's Encrypt
+
+---
+
+## Historial de sesiones
 
 ---
 
@@ -585,6 +831,8 @@ Datos de conexión:
 
 Requiere tener `docker compose up` activo. Permite inspeccionar la tabla `conversiones` y verificar que cada conversión queda registrada correctamente.
 
+---
+
 ## Sesión 4 — Tareas asíncronas con Celery + Redis (Fase 4 completa)
 
 ### Lo que hemos construido
@@ -779,23 +1027,6 @@ worker:
 
 ---
 
-### Estructura del proyecto al final de la sesión
-```
-kokito/
-├── backend/
-│   ├── main.py
-│   ├── tasks.py
-│   ├── celery_app.py
-│   ├── database.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── docker-compose.yml
-├── .gitignore
-└── DIARIO.md
-```
-
----
-
 ### Errores encontrados
 
 **`KeyError: tasks.convertir_pdf` en el worker** — el worker no registraba la tarea porque faltaba `include=["tasks"]` en `celery_app.py`.
@@ -803,6 +1034,8 @@ kokito/
 **`DisabledBackend`** — `AsyncResult` no sabía qué backend usar. Solución: pasar `app=celery_app` explícitamente y añadir `result_backend` en `celery_app.conf.update`.
 
 **`FileNotFoundError` al servir el MP3** — el archivo se generaba en el `/tmp` del worker pero el backend lo buscaba en su propio sistema de archivos. Solución: volumen compartido `mp3_data` montado en `/tmp/kokito` en ambos contenedores.
+
+---
 
 ## Sesión 5 — Frontend con React + Tailwind (Fase 5 completa)
 
@@ -863,9 +1096,7 @@ export default {
     "./index.html",
     "./src/**/*.{js,jsx}",
   ],
-  theme: {
-    extend: {},
-  },
+  theme: { extend: {} },
   plugins: [],
 }
 ```
@@ -881,9 +1112,7 @@ El campo `content` le dice a Tailwind dónde buscar las clases usadas para inclu
 
 El aviso `Unknown at rule @tailwind` en VS Code es solo una advertencia del editor — no afecta al funcionamiento. Se puede silenciar creando `frontend/.vscode/settings.json`:
 ```json
-{
-  "css.validate": false
-}
+{ "css.validate": false }
 ```
 
 ---
@@ -910,10 +1139,7 @@ function App() {
     const formData = new FormData()
     formData.append("pdf", archivo)
 
-    const res = await fetch(`${API}/convertir`, {
-      method: "POST",
-      body: formData,
-    })
+    const res = await fetch(`${API}/convertir`, { method: "POST", body: formData })
     const data = await res.json()
     setTareaId(data.tarea_id)
 
@@ -935,74 +1161,15 @@ function App() {
       }
     }, 2000)
   }
-
-  return (
-    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
-      <div className="bg-gray-900 rounded-2xl p-10 w-full max-w-md shadow-xl flex flex-col items-center gap-6">
-        <h1 className="text-3xl font-bold tracking-tight">Kokito</h1>
-        <p className="text-gray-400 text-sm text-center">
-          Convierte un PDF a audio en segundos
-        </p>
-
-        {estado === "inicial" && (
-          <div className="w-full flex flex-col items-center gap-4">
-            <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-8 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
-              <span className="text-4xl">📄</span>
-              <span className="text-sm">Haz clic para seleccionar un PDF</span>
-              <input
-                type="file"
-                accept=".pdf"
-                className="hidden"
-                onChange={handleSubmit}
-              />
-            </label>
-            {error && (
-              <p className="text-red-400 text-sm text-center">{error}</p>
-            )}
-          </div>
-        )}
-
-        {estado === "procesando" && (
-          <div className="flex flex-col items-center gap-4 py-4">
-            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-gray-400 text-sm">Generando audio...</p>
-            <p className="text-gray-600 text-xs font-mono">{tareaId}</p>
-          </div>
-        )}
-
-        {estado === "listo" && (
-          <div className="flex flex-col items-center gap-4 w-full">
-            <span className="text-5xl">✅</span>
-            <p className="text-gray-300 text-sm">Audio listo</p>
-            <audio controls src={mp3Url} className="w-full mt-2" />
-            
-              href={mp3Url}
-              download="kokito.mp3"
-              className="w-full text-center bg-blue-600 hover:bg-blue-500 transition text-white font-medium py-2 rounded-xl text-sm"
-            >
-              Descargar MP3
-            </a>
-            <button
-              onClick={() => { setEstado("inicial"); setMp3Url(null) }}
-              className="text-gray-500 hover:text-gray-300 text-xs transition"
-            >
-              Convertir otro PDF
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+  // ... render
 }
-
-export default App
 ```
 
 **Conceptos clave:**
 
 - `useState` — hook de React que define estado local. Cuando se llama a la función setter, React re-renderiza el componente con el valor nuevo
 - `setInterval` — consulta `/resultado` cada 2 segundos hasta que la tarea termina o da error. Se cancela con `clearInterval` cuando ya no hace falta
-- La detección de si la tarea terminó se hace comprobando el `content-type` de la respuesta — si incluye `audio` es el MP3, si no es JSON con el estado
+- La detección de fin de tarea se hace comprobando el `content-type` de la respuesta — si incluye `audio` es el MP3, si no es JSON con el estado
 - `URL.createObjectURL(blob)` — convierte el MP3 que llega del servidor en una URL temporal que el navegador puede reproducir directamente
 - `FormData` — formato necesario para enviar archivos via HTTP desde el navegador. Equivalente a `multipart/form-data`
 
@@ -1026,45 +1193,7 @@ Sin esto el frontend recibía la respuesta del POST `/convertir` pero las llamad
 
 ---
 
-### Arrancar el proyecto
-```bash
-# Terminal 1
-docker compose up
-
-# Terminal 2
-cd frontend
-npm run dev
-```
-
-Frontend disponible en `http://localhost:5173`.
-
----
-
-### Estructura del proyecto al final de la sesión
-```
-kokito/
-├── backend/
-│   ├── main.py
-│   ├── tasks.py
-│   ├── celery_app.py
-│   ├── database.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx
-│   │   └── index.css
-│   ├── tailwind.config.js
-│   ├── index.html
-│   └── package.json
-├── docker-compose.yml
-├── .gitignore
-└── DIARIO.md
-```
-
----
-
-## Sesión 6 — Limpieza de texto (Nivel 1 completa)
+## Sesión 6 — Limpieza de texto
 
 ### Lo que hemos construido
 
@@ -1078,36 +1207,23 @@ kokito/
 
 #### 1. Limitación de páginas para pruebas
 
-En `tasks.py`, el bucle de extracción acepta un slice para procesar solo las páginas necesarias:
 ```python
 for page in file.pages[1:2]:  # Solo la segunda página
     text += page.extract_text()
 ```
 
-- `[:1]` — solo la primera página
-- `[1:2]` — solo la segunda página
-- Sin slice — el PDF entero
+- `[:1]` — solo la primera página · `[1:2]` — solo la segunda · Sin slice — el PDF entero
 
 ---
 
 #### 2. Manejo de errores en PDFs vacíos
 
-Cambio en `tasks.py` — en lugar de devolver un string de error (que Celery marca como `SUCCESS`), se lanza una excepción real:
 ```python
 if not text:
     raise ValueError("El PDF no contiene texto extraíble")
 ```
 
-Así Celery marca la tarea como `FAILURE` y el frontend puede detectarlo correctamente.
-
-Cambio en `App.jsx` — se añadió un caso para estados inesperados en el polling:
-```javascript
-} else if (result.estado !== "pendiente") {
-    clearInterval(intervalo)
-    setError("Ha ocurrido un error inesperado")
-    setEstado("inicial")
-}
-```
+Así Celery marca la tarea como `FAILURE` y el frontend puede detectarlo correctamente (en lugar de `return "ERROR"` que Celery marca como `SUCCESS`).
 
 ---
 
@@ -1116,39 +1232,25 @@ Cambio en `App.jsx` — se añadió un caso para estados inesperados en el polli
 import re
 
 def limpiar_texto(texto: str) -> str:
-    # Títulos en mayúsculas — añadir pausa antes y después
     texto = re.sub(r"\n([A-ZÁÉÍÓÚÑÜ]+)\n", r". \1. ", texto)
-    # Saltos de línea dobles — pausa entre secciones
     texto = re.sub(r"\n{2,}", ". ", texto)
-    # Saltos de línea simples — dentro de párrafo, reemplazar por espacio
     texto = re.sub(r"\s+", " ", re.sub(r"\n", " ", texto))
-    # Pies de página y URLs
     texto = re.sub(r"-?\s*Página\s*\d+", "", texto)
     texto = re.sub(r"www\.\S+", "", texto)
     return texto
 ```
 
-Se llama justo antes de pasarle el texto a edge-tts:
-```python
-text = limpiar_texto(text)
-asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
-```
-
 **Conceptos clave:**
-
 - `re.sub(patrón, reemplazo, texto)` — busca y reemplaza patrones en un string
 - `r"\n{2,}"` — dos o más saltos de línea seguidos
 - `r"\1"` — referencia al grupo capturado entre paréntesis en el patrón
-- `?` en un patrón — el elemento anterior es opcional (cero o una vez)
-- El orden importa: hay que salvar los dobles antes de colapsar los simples
+- El orden importa: hay que procesar los dobles antes de colapsar los simples
 
 ---
 
 ### Errores encontrados
 
-**Spinner infinito en PDFs vacíos** — Celery marcaba la tarea como `SUCCESS` aunque devolviera un string de error, porque técnicamente no había excepción. Solución: usar `raise` en lugar de `return` para los errores.
-
-**Títulos sin pausa** — los títulos en este PDF están separados por `\n` simples, no dobles. Se detectan buscando líneas con solo letras mayúsculas.
+**Spinner infinito en PDFs vacíos** — Celery marcaba la tarea como `SUCCESS` aunque devolviera un string de error. Solución: usar `raise` en lugar de `return` para los errores.
 
 ---
 
@@ -1164,30 +1266,21 @@ asyncio.run(edge_tts.Communicate(text, VOICE).save(tmp_mp3_path))
 ### Cambios realizados
 
 #### tasks.py
-
-`bind=True` en el decorador permite usar `self` dentro de la tarea para reportar el estado:
 ```python
 @celery_app.task(bind=True)
 def convertir_pdf(self, pdf_bytes: bytes, filename: str) -> str:
+    # ...
+    paginas = file.pages
+    total = len(paginas)
+    for i, page in enumerate(paginas):
+        text += page.extract_text()
+        self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
 ```
 
-El bucle reporta en qué página va en cada iteración:
-```python
-paginas = file.pages
-total = len(paginas)
-for i, page in enumerate(paginas):
-    text += page.extract_text()
-    self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
-```
-
-- `enumerate()` — devuelve el índice y el valor en cada iteración, equivalente a un `for` con contador en Java
+- `enumerate()` — devuelve índice y valor en cada iteración, equivalente a for con contador en Java
 - `self.update_state()` — guarda el estado actual en Redis para que el backend pueda consultarlo
 
----
-
 #### main.py
-
-Nuevo caso en `/resultado` para el estado `PROGRESS`:
 ```python
 elif tarea.state == "PROGRESS":
     pagina = tarea.info.get("pagina", 0)
@@ -1196,31 +1289,13 @@ elif tarea.state == "PROGRESS":
     return {"estado": "progreso", "porcentaje": porcentaje}
 ```
 
----
-
 #### App.jsx
-
-Nuevo estado `progreso` y barra visual en el bloque de procesando:
-```javascript
-const [progreso, setProgreso] = useState(0)
-```
-```javascript
-} else if (result.estado === "progreso") {
-    setProgreso(result.porcentaje)
-}
-```
 ```jsx
 <p className="text-gray-400 text-sm">Generando audio... {progreso}%</p>
 <div className="w-full bg-gray-700 rounded-full h-2">
     <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${progreso}%`}} />
 </div>
 ```
-
----
-
-### Notas
-
-- Con PDFs cortos (2-3 páginas) el worker termina antes de que el polling capture estados intermedios, por lo que la barra salta directamente a 100%. Con PDFs largos el progreso se verá correctamente.
 
 ---
 
@@ -1240,8 +1315,6 @@ const [progreso, setProgreso] = useState(0)
 ### Pasos realizados
 
 #### 1. Estructura del módulo tts
-
-Se extrajo toda la lógica de conversión de `tasks.py` a un módulo independiente:
 ```
 backend/
 ├── tts/
@@ -1258,31 +1331,21 @@ La motivación es separar responsabilidades: `tasks.py` solo decide qué proveed
 ---
 
 #### 2. backend/tts/text_utils.py
-
-La función `limpiar_texto` se movió aquí desde `tasks.py` para que pueda ser reutilizada por cualquier proveedor:
 ```python
 import re
 
 def limpiar_texto(texto: str) -> str:
-    # Limpiando pausas tras títulos
     texto_limpio = re.sub(r"\n([A-ZÁÉÍÓÚÑÜ]+)\n", r". \1. ", texto)
-
-    # Limpiando saltos de línea
     texto_limpio = re.sub(r"\n{2,}", ". ", texto_limpio)
     texto_limpio = re.sub(r"\s+", " ", re.sub(r"\n", " ", texto_limpio))
-
-    # Limpiando la paginación y las URLs
     texto_limpio = re.sub(r"-?\s*Página\s*\d+", "", texto_limpio)
     texto_limpio = re.sub(r"www\.\S+", "", texto_limpio)
-
     return texto_limpio
 ```
 
 ---
 
 #### 3. backend/tts/edge.py
-
-Contiene la lógica completa que antes estaba en `tasks.py`, ahora como función independiente que recibe `self` (la instancia de la tarea Celery) para poder reportar progreso:
 ```python
 from celery_app import celery_app
 from database import SessionLocal, Conversion
@@ -1327,22 +1390,9 @@ def process_file_with_edge(self, pdf_bytes: bytes, filename: str) -> str:
 
 ---
 
-#### 4. backend/tts/google.py
-
-Stub vacío pendiente de implementar:
-```python
-def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
-    return "WIP"
-```
-
----
-
-#### 5. backend/tasks.py — versión final
-
-Simplificado a un dispatcher que delega en el proveedor correspondiente:
+#### 4. backend/tasks.py — versión final
 ```python
 from celery_app import celery_app
-from database import SessionLocal, Conversion
 from tts.edge import process_file_with_edge
 from tts.google import process_file_with_google
 
@@ -1357,9 +1407,7 @@ def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str) -> str:
 
 ---
 
-#### 6. backend/main.py — cambios
-
-Se añadió `proveedor` como parámetro obligatorio del endpoint `/convertir`:
+#### 5. backend/main.py — cambios
 ```python
 from fastapi import FastAPI, UploadFile, File, Form
 
@@ -1374,9 +1422,7 @@ async def convertir(pdf: UploadFile = File(...), proveedor: str = Form(...)):
 
 ---
 
-#### 7. frontend/src/App.jsx — selector de proveedor
-
-Se añadió estado `proveedor` y un selector visual tipo toggle antes del campo de subida:
+#### 6. frontend/src/App.jsx — selector de proveedor
 ```jsx
 const [proveedor, setProveedor] = useState("edge")
 
@@ -1385,55 +1431,15 @@ formData.append("proveedor", proveedor)
 
 // UI:
 <div className="w-full flex rounded-xl overflow-hidden border border-gray-700">
-  <button
-    onClick={() => setProveedor("edge")}
+  <button onClick={() => setProveedor("edge")}
     className={`flex-1 py-2 text-sm font-medium transition ${
-      proveedor === "edge"
-        ? "bg-blue-600 text-white"
-        : "bg-gray-800 text-gray-400 hover:text-white"
-    }`}
-  >
-    Edge TTS
-  </button>
-  <button
-    onClick={() => setProveedor("google")}
+      proveedor === "edge" ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
+    }`}>Edge TTS</button>
+  <button onClick={() => setProveedor("google")}
     className={`flex-1 py-2 text-sm font-medium transition ${
-      proveedor === "google"
-        ? "bg-blue-600 text-white"
-        : "bg-gray-800 text-gray-400 hover:text-white"
-    }`}
-  >
-    Google TTS
-  </button>
+      proveedor === "google" ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
+    }`}>Google TTS</button>
 </div>
-```
-
----
-
-### Estructura del proyecto al final de la sesión
-```
-kokito/
-├── backend/
-│   ├── tts/
-│   │   ├── edge.py
-│   │   ├── google.py
-│   │   └── text_utils.py
-│   ├── main.py
-│   ├── tasks.py
-│   ├── celery_app.py
-│   ├── database.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx
-│   │   └── index.css
-│   ├── tailwind.config.js
-│   ├── index.html
-│   └── package.json
-├── docker-compose.yml
-├── .gitignore
-└── DIARIO.md
 ```
 
 ---
@@ -1533,11 +1539,9 @@ El presupuesto `kokito-limite` (€10 mensual) ya tenía configurado el topic `p
 gcloud pubsub subscriptions list --project=kokito
 ```
 
-La suscripción `eventarc-europe-west1-trigger-xg1htbue-sub-402` está activa y apunta a la URL de la función con autenticación OIDC.
-
 ---
 
-#### 6. Errores encontrados
+### Errores encontrados
 
 **`Failed to find attribute 'app' in 'main'`** — Cloud Run con Buildpacks espera una app Flask. Solución: añadir `app = Flask(__name__)` y el decorador `@app.route`.
 
@@ -1603,7 +1607,6 @@ En producción este archivo no se usa — las credenciales se inyectan via varia
 
 #### 4. docker-compose.yml — cambios en el worker
 
-Se añadieron el volumen del archivo de credenciales y la variable de entorno que apunta a él:
 ```yaml
 worker:
   build: ./backend
@@ -1642,9 +1645,7 @@ CMD ["python", "kokito.py"]
 
 La API de Google TTS tiene un límite de 5000 bytes por petición. Se implementó una función `dividir_texto` que parte el texto en fragmentos respetando ese límite sin cortar palabras, convierte cada fragmento por separado y los concatena con `pydub`:
 ```python
-import os
-import tempfile
-import pdfplumber
+import os, tempfile, pdfplumber
 from pydub import AudioSegment
 from google.cloud import texttospeech
 from database import SessionLocal, Conversion
@@ -1666,63 +1667,8 @@ def dividir_texto(texto: str) -> list[str]:
     return fragmentos
 
 def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
-    os.makedirs(MP3_DIR, exist_ok=True)
-
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-        tmp_pdf.write(pdf_bytes)
-        tmp_pdf_path = tmp_pdf.name
-
-    with pdfplumber.open(tmp_pdf_path) as file:
-        text = ""
-        paginas = file.pages[10:12]
-        total = len(paginas)
-        for i, page in enumerate(paginas):
-            text += page.extract_text()
-            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
-
-    if not text:
-        raise ValueError("El PDF no contiene texto extraíble")
-
-    text = limpiar_texto(text)
-
-    client = texttospeech.TextToSpeechClient()
-    voice = texttospeech.VoiceSelectionParams(
-        language_code="es-ES",
-        name="es-ES-Chirp3-HD-Charon"
-    )
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
-
-    fragmentos = dividir_texto(text)
-    segmentos = []
-    for fragmento in fragmentos:
-        synthesis_input = texttospeech.SynthesisInput(text=fragmento)
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
-        )
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp:
-            tmp.write(response.audio_content)
-            segmentos.append(AudioSegment.from_mp3(tmp.name))
-
-    audio_final = segmentos[0]
-    for segmento in segmentos[1:]:
-        audio_final += segmento
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
-        tmp_mp3_path = tmp_mp3.name
-
-    audio_final.export(tmp_mp3_path, format="mp3")
-
-    db = SessionLocal()
-    conversion = Conversion(nombre=filename, caracteres=len(text))
-    db.add(conversion)
-    db.commit()
-    db.close()
-
-    return tmp_mp3_path
+    # extracción PDF, fragmentación, síntesis con Google TTS, concatenación con pydub
+    ...
 ```
 
 **Conceptos clave:**
@@ -1736,44 +1682,13 @@ def process_file_with_google(self, pdf_bytes: bytes, filename: str) -> str:
 
 #### 7. Selección de voz
 
-Se probaron las siguientes voces masculinas de español de España con un fragmento de texto real:
+Se probaron voces masculinas de español de España: `es-ES-Studio-F`, `es-ES-Neural2-F`, `es-ES-Neural2-G`, `es-ES-Chirp3-HD-Charon`, `es-ES-Chirp3-HD-Fenrir`, `es-ES-Chirp3-HD-Iapetus`.
 
-- `es-ES-Studio-F`
-- `es-ES-Neural2-F`, `es-ES-Neural2-G`
-- `es-ES-Chirp3-HD-Charon`, `es-ES-Chirp3-HD-Fenrir`, `es-ES-Chirp3-HD-Iapetus`
-
-**Voz seleccionada: `es-ES-Chirp3-HD-Charon`** — tecnología Chirp3 HD (la más reciente de Google), voz masculina adulta y grave, acento español de España.
-
-Script usado para generar las muestras:
-```python
-from google.cloud import texttospeech
-
-voces = [
-    "es-ES-Studio-F",
-    "es-ES-Neural2-F",
-    "es-ES-Neural2-G",
-    "es-ES-Chirp3-HD-Charon",
-    "es-ES-Chirp3-HD-Fenrir",
-    "es-ES-Chirp3-HD-Iapetus",
-]
-
-client = texttospeech.TextToSpeechClient()
-texto = "Bienvenido a Kokito, tu asistente de conversión de libros a audio."
-
-for voz in voces:
-    synthesis_input = texttospeech.SynthesisInput(text=texto)
-    voice = texttospeech.VoiceSelectionParams(language_code="es-ES", name=voz)
-    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
-    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
-    with open(f"{voz}.mp3", "wb") as f:
-        f.write(response.audio_content)
-```
+**Voz seleccionada: `es-ES-Chirp3-HD-Charon`** (luego actualizada a Umbriel en sesión 10).
 
 ---
 
 #### 8. Endpoint GET /estadisticas
-
-Nuevo endpoint en `main.py` que suma los caracteres procesados en el mes natural actual consultando la tabla `conversiones`:
 ```python
 from sqlalchemy import func
 from datetime import datetime, timezone
@@ -1793,45 +1708,7 @@ def estadisticas():
     }
 ```
 
-- El contador va de día 1 a último día del mes natural y se resetea solo el día 1 de cada mes
 - `or 0` — evita que devuelva `None` si no hay conversiones ese mes
-
----
-
-#### 9. Frontend — barra de uso
-
-Se añadió un bloque de estadísticas en la parte inferior de la tarjeta que muestra el consumo del mes y se actualiza automáticamente al terminar cada conversión:
-```jsx
-const [estadisticas, setEstadisticas] = useState(null)
-
-useEffect(() => {
-  fetch(`${API}/estadisticas`)
-    .then(res => res.json())
-    .then(data => setEstadisticas(data))
-}, [])
-
-// Al terminar la conversión:
-fetch(`${API}/estadisticas`)
-  .then(res => res.json())
-  .then(data => setEstadisticas(data))
-```
-```jsx
-{estadisticas && (
-  <div className="w-full border-t border-gray-800 pt-4 flex flex-col gap-2">
-    <div className="flex justify-between text-xs text-gray-500">
-      <span>Uso Google TTS este mes</span>
-      <span>{estadisticas.caracteres_mes.toLocaleString()} / 1.000.000 caracteres</span>
-    </div>
-    <div className="w-full bg-gray-700 rounded-full h-1.5">
-      <div
-        className="bg-green-500 h-1.5 rounded-full transition-all"
-        style={{ width: `${Math.min(estadisticas.porcentaje, 100)}%` }}
-      />
-    </div>
-    <p className="text-xs text-gray-600 text-right">{estadisticas.porcentaje}% usado</p>
-  </div>
-)}
-```
 
 ---
 
@@ -1839,7 +1716,7 @@ fetch(`${API}/estadisticas`)
 
 **`quota project not set`** — las credenciales ADC no tenían proyecto de quota asignado. Solución: `gcloud auth application-default set-quota-project kokito`.
 
-**`InvalidArgument: input.text longer than 5000 bytes`** — la API de Google TTS no acepta textos de más de 5000 bytes por petición. Solución: fragmentar el texto con `dividir_texto` y concatenar los MP3 resultantes con `pydub`.
+**`InvalidArgument: input.text longer than 5000 bytes`** — la API de Google TTS no acepta textos de más de 5000 bytes por petición. Solución: fragmentar con `dividir_texto` y concatenar los MP3 resultantes con `pydub`.
 
 **`FileNotFoundError: ffprobe`** — `pydub` necesita `ffmpeg` instalado en el sistema para procesar MP3. Solución: añadir `apt-get install -y ffmpeg` al `Dockerfile`.
 
@@ -1862,60 +1739,10 @@ fetch(`${API}/estadisticas`)
 Se probaron las siguientes voces masculinas adicionales: `es-ES-Chirp3-HD-Algieba`, `es-ES-Chirp3-HD-Alnilam`, `es-ES-Chirp3-HD-Umbriel`, `es-ES-Chirp3-HD-Algenib`, `es-ES-Chirp3-HD-Schedar` y `es-ES-Studio-F`. También se exploró SSML para mejorar la naturalidad, pero las voces Chirp3 HD tienen soporte limitado y Studio-F no soporta `pitch` ni `emphasis`. La voz seleccionada finalmente es **`es-ES-Chirp3-HD-Umbriel`**.
 
 #### Columna proveedor en BBDD
-
-Se añadió `proveedor` al modelo `Conversion` en `database.py`:
 ```python
+# database.py
 proveedor = Column(String, nullable=True)
-```
 
-Y se pasa al guardar en cada proveedor:
-```python
-# edge.py
-conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="edge")
-
-# google.py
-conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="google")
-```
-
-#### Estadísticas filtradas por proveedor
-```python
-caracteres_mes = db.query(func.sum(Conversion.caracteres)).filter(
-    Conversion.creado_en >= ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
-    Conversion.proveedor == "google"
-).scalar() or 0
-```
-
----
-
-### Notas
-
-- Edge TTS es gratuito porque usa el endpoint interno de Microsoft Edge para lectura web. No es una API oficial y puede dejar de funcionar en cualquier momento — válido para desarrollo pero no recomendable para producción.
-- Las voces Chirp3 HD cuestan $30/millón de caracteres fuera de la capa gratuita. Con 1 millón gratuito al mes caben aproximadamente 2 libros del tamaño de El Imperio Final sin coste.
-- Para cambiar temporalmente el número de páginas a procesar, modificar el slice `file.pages[:100]` en `tts/edge.py` y `tts/google.py`.## Sesión 10 — Ajustes de voz y conteo de caracteres por proveedor
-
-### Lo que hemos construido
-
-- **Voz actualizada a `es-ES-Chirp3-HD-Umbriel`** tras comparar varias opciones
-- **Columna `proveedor`** añadida a la tabla `conversiones` para distinguir el origen de cada conversión
-- **Endpoint `/estadisticas` actualizado** para contar solo los caracteres procesados con Google TTS
-
----
-
-### Cambios realizados
-
-#### Selección de voz
-
-Se probaron las siguientes voces masculinas adicionales: `es-ES-Chirp3-HD-Algieba`, `es-ES-Chirp3-HD-Alnilam`, `es-ES-Chirp3-HD-Umbriel`, `es-ES-Chirp3-HD-Algenib`, `es-ES-Chirp3-HD-Schedar` y `es-ES-Studio-F`. También se exploró SSML para mejorar la naturalidad, pero las voces Chirp3 HD tienen soporte limitado y Studio-F no soporta `pitch` ni `emphasis`. La voz seleccionada finalmente es **`es-ES-Chirp3-HD-Umbriel`**.
-
-#### Columna proveedor en BBDD
-
-Se añadió `proveedor` al modelo `Conversion` en `database.py`:
-```python
-proveedor = Column(String, nullable=True)
-```
-
-Y se pasa al guardar en cada proveedor:
-```python
 # edge.py
 conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="edge")
 
@@ -1960,7 +1787,6 @@ Se reemplazó el procesado secuencial por concurrencia limitada con `asyncio.Sem
 ```python
 async def procesar_audio(fragmentos: list[str], task_self, total_paginas: int) -> list[str]:
     semaforo = asyncio.Semaphore(15)
-    rutas = []
     completados = [0]
     total_fragmentos = len(fragmentos)
 
@@ -2010,15 +1836,7 @@ elif tarea.state == "PROGRESS":
 
 ---
 
-#### 3. Reintento automático
-
-Si Microsoft devuelve un error en un fragmento, se reintenta hasta 3 veces con 1 segundo de espera entre intentos antes de fallar definitivamente. Esto evita que un error puntual de red rompa toda la conversión.
-
----
-
 ### Investigación de alternativas TTS
-
-Se investigaron precios y calidad de alternativas a Google TTS:
 
 | Servicio | Capa gratuita | Precio después | Notas |
 |---|---|---|---|
@@ -2029,12 +1847,400 @@ Se investigaron precios y calidad de alternativas a Google TTS:
 | Amazon Polly Neural | 1M chars/mes (1 año) | $16/millón | Voz Sergio es-ES pendiente de probar |
 | ElevenLabs Creator | 100K chars/mes | $22/mes | Mejor calidad narrativa, muy caro |
 
-**Pendiente:** probar la voz **Sergio (Amazon Polly Neural, es-ES)** para comparar con Umbriel.
+---
+
+### Notas
+
+- Correr modelos TTS locales en un Pentium doméstico no es viable — tardaría horas por libro. Se necesita CPU moderna de 8 núcleos o GPU dedicada.
+- Azure TTS es la opción más interesante a largo plazo: mismas voces que Edge TTS pero API oficial con 5M caracteres gratuitos al mes.
+- ElevenLabs tiene la mejor calidad narrativa del mercado pero el coste es prohibitivo para uso con varios usuarios.
+
+---
+
+## Sesión 12 — Diseño del flujo de producto
+
+### Decisiones tomadas
+
+**Proveedor TTS:**
+- **Edge TTS** para desarrollo y pruebas — gratis, suficiente para iterar
+- **Google Standard** como candidato para producción — $4/millón, 4M chars gratuitos/mes (~8 libros), 100 páginas en ~3 minutos con paralelización a 5 workers
+- Google Chirp3 HD y Neural2 descartados por precio
+- Amazon Polly descartado — cuenta nueva obligatoria con caducidad a 6 meses
+- OpenAI TTS descartado — sin capa gratuita permanente, modelo de prepago no encaja
+- **WaveNet pendiente de probar** como alternativa intermedia entre Standard y Neural2
+
+---
+
+### Flujo de producto diseñado
+
+#### Subida de un PDF nuevo
+1. Admin sube el PDF manualmente desde el panel de administración
+2. El sistema analiza el PDF en menos de 1 segundo — número de páginas, detección de capítulos, cálculo de **hash del contenido**
+3. Se muestra al admin un **selector de parte** — "¿Por dónde empezamos?"
+4. Se procesa primero la parte elegida → disponible en ~2 minutos
+5. En segundo plano, Celery procesa el resto del libro en orden: partes siguientes primero, anteriores al final
+
+#### PDF ya existente en el sistema
+- El hash del PDF permite detectar si el libro ya fue procesado anteriormente, independientemente del nombre del archivo
+- Las partes ya procesadas están disponibles de inmediato
+
+---
+
+### Arquitectura necesaria para este flujo
+
+- **División del libro en partes** — bloques de N páginas o por capítulos detectados automáticamente
+- **Hash del PDF** — huella digital del contenido para identificar libros duplicados
+- **Nuevas tablas en BBDD** — libros (con hash) y partes (con estado: pendiente / procesando / listo)
+- **Cloudflare R2** — almacenamiento permanente de los MP3 por partes
+- **Login de usuarios** — para asociar cada libro y posición de escucha a cada usuario
+- **Marcador de posición** — guardar en BBDD en qué parte y en qué segundo se quedó cada usuario
+- **Panel de admin** separado del frontal de usuarios
+- **Sistema de solicitudes** — los usuarios pueden pedir libros; el admin recibe la notificación en su dashboard
+
+---
+
+## Sesión 13 — TTS local con GPU
+
+### Lo que hemos construido
+
+- **Python 3.11.9** instalado en el sobremesa Windows
+- **PyTorch 2.5.1 con CUDA 12.1** — GPU RTX 3070 reconocida correctamente
+- **Coqui XTTS v2** instalado y funcionando con clonado de voz
+- **Voz de referencia seleccionada** — `voz_elevenlabs_1.mp3`, capturada desde la demo de ElevenLabs
+- **Parámetros óptimos** — `temperature=0.7`, `repetition_penalty=5.0`
+- **Servidor FastAPI** en el sobremesa (puerto 8001) con endpoints `/health` y `/tts`
+- **`tts/local.py`** en Kokito que llama al sobremesa via HTTP y concatena los MP3
+- Servidor accesible desde el Mac en `http://192.168.1.51:8001`
+- Pendiente: depurar error de concatenación de MP3 en pydub
+
+---
+
+### Pasos realizados
+
+#### 1. Entorno en Windows
+
+```cmd
+# Instalar Python 3.11.9 desde python.org (instalador oficial, marcar "Add to PATH")
+# Crear entorno virtual
+mkdir C:\kokito-tts
+cd C:\kokito-tts
+python -m venv venv
+venv\Scripts\activate
+```
+
+---
+
+#### 2. PyTorch con CUDA
+
+No fue necesario instalar CUDA Toolkit por separado — el driver 595.79 ya incluye CUDA 13.2 y entraba en conflicto con el instalador de CUDA 12.4. PyTorch incluye su propia versión de CUDA internamente.
+
+```cmd
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+Verificación:
+```cmd
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+# 2.5.1+cu121
+# True
+# NVIDIA GeForce RTX 3070
+```
+
+---
+
+#### 3. Coqui XTTS v2
+
+```cmd
+pip install TTS
+# Requiere Microsoft C++ Build Tools — descargar de https://visualstudio.microsoft.com/visual-cpp-build-tools/
+# Seleccionar "Desarrollo para el escritorio con C++"
+
+pip install transformers==4.37.2
+# Necesario — versión más nueva rompe la importación de BeamSearchScorer
+```
+
+Verificación:
+```cmd
+python -c "from TTS.api import TTS; print('TTS importado correctamente')"
+```
+
+---
+
+#### 4. Evaluación de motores TTS
+
+Se evaluaron dos motores:
+
+**Piper TTS** — descartado. Muy rápido (casi instantáneo) pero suena plano y sin expresividad. No apto para audiolibros.
+
+**Coqui XTTS v2** — seleccionado. Soporta clonado de voz, español nativo, expresivo. Velocidad: ~40 segundos por 150 palabras en RTX 3070 → ~5-6 horas por libro de 300 páginas. Aceptable procesando de noche.
+
+---
+
+#### 5. Selección de voz
+
+Las voces predefinidas de XTTS v2 suenan genéricas y con acento no español. Se optó por **clonado de voz** — se capturó un fragmento de audio desde la demo de ElevenLabs (voz masculina, grave, castellano) y se usa como referencia.
+
+Archivo: `voz_elevenlabs_1.mp3` — guardado en `C:\kokito-tts\`
+
+Parámetros óptimos tras pruebas:
+- `temperature=0.7` — balance entre naturalidad y estabilidad
+- `repetition_penalty=5.0`
+
+**Nota de producto:** el usuario podrá elegir entre las voces disponibles en el frontend. El admin selecciona previamente qué voces están disponibles (habiendo probado cuáles suenan bien).
+
+---
+
+#### 6. Servidor FastAPI en el sobremesa — `C:\kokito-tts\server.py`
+
+```python
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+import tempfile, os, time
+from TTS.api import TTS
+
+app = FastAPI()
+
+print("Cargando modelo XTTS v2...")
+tts = TTS('tts_models/multilingual/multi-dataset/xtts_v2').to('cuda')
+print("Modelo listo.")
+
+VOZ_DIR = "C:/kokito-tts"
+
+class PeticionTTS(BaseModel):
+    texto: str
+    voz: str = "voz_elevenlabs_1.mp3"
+
+@app.get("/health")
+def health():
+    return {"estado": "activo"}
+
+@app.post("/tts")
+def sintetizar(peticion: PeticionTTS):
+    voz_path = os.path.join(VOZ_DIR, peticion.voz)
+
+    if not os.path.exists(voz_path):
+        raise HTTPException(status_code=404, detail=f"Voz no encontrada: {peticion.voz}")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=VOZ_DIR) as tmp:
+        tmp_path = tmp.name
+
+    inicio = time.time()
+
+    tts.tts_to_file(
+        text=peticion.texto,
+        speaker_wav=voz_path,
+        language='es',
+        file_path=tmp_path,
+        temperature=0.7,
+        repetition_penalty=5.0,
+    )
+
+    duracion = round(time.time() - inicio, 1)
+    print(f"Fragmento generado en {duracion}s")
+
+    return FileResponse(tmp_path, media_type="audio/mpeg", filename="fragmento.mp3")
+```
+
+Arrancar el servidor:
+```cmd
+pip install fastapi uvicorn
+uvicorn server:app --host 0.0.0.0 --port 8001
+```
+
+IP local del sobremesa: `192.168.1.51`
+
+---
+
+#### 7. backend/tts/local.py en Kokito
+
+```python
+import httpx
+import tempfile
+import os
+from database import SessionLocal, Conversion
+
+MP3_DIR = "/tmp/kokito"
+SERVIDOR_LOCAL = os.getenv("TTS_LOCAL_URL", "http://192.168.1.51:8001")
+
+def process_file_with_local(self, pdf_bytes: bytes, filename: str) -> str:
+    import pdfplumber
+    from tts.text_utils import limpiar_texto
+    from tts.edge import dividir_texto
+
+    os.makedirs(MP3_DIR, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        tmp_pdf.write(pdf_bytes)
+        tmp_pdf_path = tmp_pdf.name
+
+    with pdfplumber.open(tmp_pdf_path) as file:
+        text = ""
+        paginas = file.pages
+        total = len(paginas)
+        for i, page in enumerate(paginas):
+            text += page.extract_text()
+            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+
+    if not text:
+        raise ValueError("El PDF no contiene texto extraíble")
+
+    text = limpiar_texto(text)
+    fragmentos = dividir_texto(text)
+    total_fragmentos = len(fragmentos)
+    segmentos = []
+
+    for i, fragmento in enumerate(fragmentos):
+        porcentaje = 50 + int(((i + 1) / total_fragmentos) * 50)
+        self.update_state(state="PROGRESS", meta={
+            "pagina": total, "total": total,
+            "porcentaje_override": porcentaje
+        })
+
+        response = httpx.post(
+            f"{SERVIDOR_LOCAL}/tts",
+            json={"texto": fragmento, "voz": "voz_elevenlabs_1.mp3"},
+            timeout=300
+        )
+        response.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp:
+            tmp.write(response.content)
+            tmp.flush()
+            segmentos.append(tmp.name)
+
+    from pydub import AudioSegment
+    audio_final = None
+    for ruta in segmentos:
+        segmento = AudioSegment.from_file(ruta, format="mp3")
+        if audio_final is None:
+            audio_final = segmento
+        else:
+            audio_final += segmento
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
+        tmp_mp3_path = tmp_mp3.name
+
+    audio_final.export(tmp_mp3_path, format="mp3")
+
+    db = SessionLocal()
+    conversion = Conversion(nombre=filename, caracteres=len(text), proveedor="local")
+    db.add(conversion)
+    db.commit()
+    db.close()
+
+    return tmp_mp3_path
+```
+
+Variable de entorno añadida al worker en `docker-compose.yml`:
+```yaml
+- TTS_LOCAL_URL=http://192.168.1.51:8001
+```
+
+---
+
+#### 8. Arquitectura de comunicación decidida
+
+```
+Mini PC / Mac (Kokito worker)
+  → extrae texto del PDF
+  → limpia texto y trocea en fragmentos de ~500 palabras
+  → POST /tts al sobremesa (síncrono, un fragmento a la vez)
+  → recibe MP3 de cada fragmento
+  → concatena todos los MP3 con pydub
+  → sube resultado a R2 (futuro)
+```
+
+Los capítulos se gestionan en Kokito, no en el servidor TTS. El servidor solo recibe texto y devuelve audio.
+
+---
+
+### Errores encontrados
+
+**`BeamSearchScorer` ImportError** — versión de `transformers` incompatible con TTS. Solución: `pip install transformers==4.37.2`.
+
+**CUDA Toolkit 12.4 falla en instalación** — el driver 595.79 ya incluye CUDA 13.2 y entra en conflicto. Solución: no instalar CUDA Toolkit, PyTorch incluye su propia versión.
+
+**Microsoft C++ Build Tools requerido** — necesario para compilar extensiones de TTS en Windows. Descargar de `https://visualstudio.microsoft.com/visual-cpp-build-tools/`.
+
+**Error de concatenación MP3 en pydub** — los bytes recibidos del servidor Windows no son reconocidos correctamente por pydub/ffmpeg. Pendiente de depurar — se añadieron logs para inspeccionar content-type y primeros bytes de la respuesta.
 
 ---
 
 ### Notas
 
-- Correr modelos TTS locales (Coqui, Piper) en un Pentium doméstico no es viable — tardaría horas por libro. Se necesita CPU moderna de 8 núcleos o GPU dedicada.
-- Azure TTS es la opción más interesante a largo plazo: mismas voces que Edge TTS pero API oficial con 5M caracteres gratuitos al mes.
-- ElevenLabs tiene la mejor calidad narrativa del mercado pero el coste es prohibitivo para uso con varios usuarios.
+- El servidor del sobremesa carga el modelo XTTS v2 en VRAM al arrancar (~2-3 minutos) y luego permanece en memoria. No se recarga entre peticiones.
+- Para añadir una voz nueva: copiar el MP3 de referencia a `C:\kokito-tts\` y pasarlo en el campo `voz` de la petición.
+- El sobremesa no necesita estar encendido 24/7 — solo cuando se procesen libros nuevos. El mini PC sirve los libros ya procesados independientemente.
+
+---
+
+## Sesión 14 — Voz dinámica desde el frontend y mejoras de calidad TTS local
+
+### Lo que hemos construido
+
+- **Envío del archivo de voz desde el frontend** — el admin sube el MP3/WAV de referencia directamente desde el navegador sin tocar el sobremesa
+- **Servidor del sobremesa actualizado** para recibir la voz como `multipart/form-data` en lugar de buscarla en disco
+- **`limpiar_texto` mejorado** con mejor manejo de diálogos, letras capitulares y títulos de capítulo
+- **`dividir_texto_local` reescrito** para cortar siempre en frases completas respetando puntuación
+- **Logs con timestamp** en el servidor del sobremesa
+- **Punto explícito al final de cada fragmento** para evitar vocalizaciones de cierre de XTTS
+
+---
+
+### Cambios por archivo
+
+#### `C:\kokito-tts\server.py`
+- Eliminado el modelo `PeticionTTS` y el endpoint antiguo
+- Nuevo endpoint `/tts` recibe `texto: str = Form(...)` y `voz: UploadFile = File(...)`
+- El archivo de voz se guarda en un temporal, se usa y se borra con `os.unlink`
+- Logs con timestamp via función `log()` con `datetime.now().strftime('%H:%M:%S')`
+- Instalado `python-multipart` en el entorno del sobremesa
+
+#### `backend/tts/local.py`
+- Firma actualizada: `process_file_with_local(self, pdf_bytes, filename, voz_bytes)`
+- `httpx.post` cambiado de `json=` a `data=` + `files=` para enviar `multipart/form-data`
+- Se añade `.` al final de cada fragmento antes de enviarlo para evitar artefactos de cierre de XTTS
+- `dividir_texto_local` reescrito — corta por frases completas (`.`, `!`, `?`) agrupando hasta 200 caracteres, con segundo nivel de corte por comas para frases largas
+
+#### `backend/tasks.py`
+- `convertir_pdf` recibe nuevo parámetro `voz_bytes: bytes = b""`
+- Se pasa a `process_file_with_local`
+
+#### `backend/main.py`
+- Endpoint `/convertir` recibe `voz: UploadFile = File(None)` como campo opcional
+- Lee los bytes con `await voz.read() if voz else b""`
+
+#### `frontend/src/App.jsx`
+- Nuevo estado `vozArchivo`
+- Input de archivo visible solo cuando `proveedor === "local"`
+- El archivo se añade al `formData` antes del fetch
+
+#### `backend/tts/text_utils.py` — mejoras en `limpiar_texto`
+- Guiones de diálogo convertidos a coma para mantener fluidez (`—Cabría pensar —apuntó—` → `, Cabría pensar, apuntó,`)
+- Letras capitulares separadas por salto de línea unidas a la palabra siguiente (`C\naía` → `Caía`)
+- Títulos en mayúsculas con pausa via coma en lugar de `...` (evita vocalización "Mm" de XTTS)
+- `?.` → `?` para evitar puntuación doble tras interrogaciones seguidas de título
+
+---
+
+### Problemas encontrados y resueltos
+
+**`python-multipart` no instalado en el sobremesa** — el endpoint no podía procesar `multipart/form-data`. Solución: `pip install python-multipart` en el entorno del sobremesa.
+
+**Código duplicado en `server.py`** — el endpoint nuevo se pegó encima del viejo sin borrar el original, y `app = FastAPI()` quedó después de los decoradores. Solución: reescribir el archivo completo en el orden correcto.
+
+**`Cabría pensar` desaparecía del audio** — el regex `##DIALOGO##[^#\n]*##DIALOGO##` eliminaba el texto entre el primer y segundo guión de un diálogo con tres guiones. Solución: abandonar la detección de incisos y convertir todos los guiones en coma.
+
+**Artefacto de cierre en XTTS** — palabras agudas al final de fragmento generaban una vocalización extra. Solución: añadir `.` explícito al final de cada fragmento antes de enviarlo.
+
+**Fragmentos cortados a mitad de frase** — `dividir_texto_local` cortaba por número de palabras sin respetar puntuación. Solución: reescribir para cortar siempre en fin de frase.
+
+---
+
+### Notas
+
+- La voz de referencia se envía en cada fragmento — el sobremesa no necesita tener ningún archivo en disco
+- Para probar voces nuevas basta con seleccionar otro archivo desde el frontend sin tocar nada en el sobremesa
+- Los artefactos de XTTS son impredecibles y dependen del contenido — se irán corrigiendo en `limpiar_texto` a medida que aparezcan casos nuevos en libros reales
+- Pendiente: quitar el `print` de depuración de `local.py` antes de procesar libros completos
