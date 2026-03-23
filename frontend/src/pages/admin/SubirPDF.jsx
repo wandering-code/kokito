@@ -1,6 +1,5 @@
 import { useState } from "react"
-
-const API = "http://localhost:8000"
+import API from "../../config"
 
 export default function SubirPDF({ onLibroSubido }) {
   const [titulo, setTitulo] = useState("")

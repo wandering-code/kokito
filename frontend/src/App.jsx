@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext"
 import LoginPage from "./LoginPage"
 import AdminPage from "./pages/admin/AdminPage"
 import BibliotecaPage from "./pages/usuario/BibliotecaPage"
+import LibroPage from "./pages/usuario/LibroPage"
 
 function RutaProtegida({ children }) {
   const { usuario, cargando } = useAuth()
@@ -60,6 +61,12 @@ export default function App() {
         usuario
           ? <Navigate to={usuario.rol === "admin" ? "/admin" : "/biblioteca"} />
           : <Navigate to="/login" />
+      } />
+
+      <Route path="/libro/:id" element={
+        <RutaProtegida>
+          <LibroPage />
+        </RutaProtegida>
       } />
     </Routes>
   )

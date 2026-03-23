@@ -1,31 +1,13 @@
-import { useState } from "react"
 import { useAuth } from "../../AuthContext"
-import BibliotecaPage from "../usuario/BibliotecaPage"
+import { useNavigate } from "react-router-dom"
+import { useState } from "react"
 import SubirPDF from "./SubirPDF"
 import ListaLibros from "./ListaLibros"
 
 export default function AdminPage() {
   const { usuario, logout } = useAuth()
-  const [vistaUsuario, setVistaUsuario] = useState(false)
+  const navigate = useNavigate()
   const [refreshLibros, setRefreshLibros] = useState(0)
-
-  if (vistaUsuario) {
-    return (
-      <div>
-        <div style={{backgroundColor: "#1e3a5f"}} className="px-6 py-2 flex justify-between items-center">
-          <span className="text-white text-xs font-medium">👁 Viendo como usuario</span>
-          <button
-            onClick={() => setVistaUsuario(false)}
-            style={{backgroundColor: "#2d5a8e"}}
-            className="text-white text-xs px-3 py-1 rounded-lg hover:opacity-80 transition"
-          >
-            ← Volver al panel de admin
-          </button>
-        </div>
-        <BibliotecaPage modoAdmin={true} />
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-8">
@@ -34,7 +16,7 @@ export default function AdminPage() {
           <h1 className="text-2xl font-bold">Panel de administración</h1>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setVistaUsuario(true)}
+              onClick={() => navigate("/biblioteca", { state: { modoAdmin: true }, replace: true })}
               style={{backgroundColor: "#2d5a8e"}}
               className="text-white text-sm px-4 py-2 rounded-lg hover:opacity-80 transition font-medium"
             >

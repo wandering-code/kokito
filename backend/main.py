@@ -11,12 +11,16 @@ import hashlib
 from fastapi import Response, Depends
 from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin
 from database import Usuario
+import os
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://192.168.1.94:5173"
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True
@@ -233,8 +237,9 @@ def login(email: str = Form(...), password: str = Form(...), response: Response 
             key="kokito_token",
             value=token,
             httponly=True,
-            max_age=30 * 24 * 60 * 60,  # 30 días en segundos
-            samesite="lax"
+            max_age=30 * 24 * 60 * 60,
+            samesite="none",
+            secure=False
         )
         return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
     finally:
@@ -261,5 +266,66 @@ def cambiar_visibilidad(libro_id: int, visible: bool):
         libro.visible = visible
         db.commit()
         return {"id": libro.id, "visible": libro.visible}
+    finally:
+        db.close()
+
+@app.get("/libros/publicos")
+def listar_libros_publicos():
+    db = SessionLocal()
+    try:
+        libros = db.query(Libro).filter(Libro.visible == True).order_by(Libro.fecha_subida.desc()).all()
+        return [
+            {
+                "id": l.id,
+                "titulo": l.titulo,
+                "autor": l.autor,
+                "num_paginas": l.num_paginas,
+                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count()
+            }
+            for l in libros
+        ]
+    finally:
+        db.close()
+
+@app.get("/libros/{libro_id}")
+def detalle_libro(libro_id: int):
+    db = SessionLocal()
+    try:
+        libro = db.query(Libro).filter(Libro.id == libro_id).first()
+        if not libro:
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
+        partes = db.query(Parte).filter(Parte.libro_id == libro_id).order_by(Parte.numero_parte).all()
+        return {
+            "id": libro.id,
+            "titulo": libro.titulo,
+            "autor": libro.autor,
+            "num_paginas": libro.num_paginas,
+            "partes": [
+                {
+                    "id": p.id,
+                    "numero_parte": p.numero_parte,
+                    "pagina_inicio": p.pagina_inicio,
+                    "pagina_fin": p.pagina_fin,
+                    "estado": p.estado,
+                    "duracion_segundos": p.duracion_segundos
+                }
+                for p in partes
+            ]
+        }
+    finally:
+        db.close()
+
+@app.get("/partes/{parte_id}/audio")
+def audio_parte(parte_id: int):
+    db = SessionLocal()
+    try:
+        parte = db.query(Parte).filter(Parte.id == parte_id).first()
+        if not parte:
+            raise HTTPException(status_code=404, detail="Parte no encontrada")
+        if parte.estado != EstadoParte.listo:
+            raise HTTPException(status_code=400, detail="Esta parte todavía no está lista")
+        if not parte.ruta_mp3 or not os.path.exists(parte.ruta_mp3):
+            raise HTTPException(status_code=404, detail="Archivo de audio no encontrado")
+        return FileResponse(parte.ruta_mp3, media_type="audio/mpeg")
     finally:
         db.close()
