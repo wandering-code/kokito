@@ -1,8 +1,24 @@
 import { useState, useEffect } from "react"
+import { useAuth } from "./AuthContext"
+import LoginPage from "./LoginPage"
 
 const API = "http://localhost:8000"
 
 function App() {
+  const { usuario, cargando, logout } = useAuth()
+
+  if (cargando) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!usuario) {
+    return <LoginPage />
+  }
+
   const [estado, setEstado] = useState("inicial")
   const [proveedor, setProveedor] = useState("edge")
   const [tareaId, setTareaId] = useState(null)
@@ -102,6 +118,15 @@ function App() {
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
       <div className="bg-gray-900 rounded-2xl p-10 w-full max-w-md shadow-xl flex flex-col items-center gap-6">
         <h1 className="text-3xl font-bold tracking-tight">Kokito</h1>
+        <div className="w-full flex justify-between items-center">
+          <span className="text-gray-500 text-xs">Hola, {usuario.nombre}</span>
+          <button
+            onClick={logout}
+            className="text-gray-500 hover:text-gray-300 text-xs transition"
+          >
+            Cerrar sesión
+          </button>
+        </div>
         <p className="text-gray-400 text-sm text-center">
           Convierte un PDF a audio en segundos
         </p>

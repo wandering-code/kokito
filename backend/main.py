@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
@@ -8,7 +8,9 @@ from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
 from sqlalchemy import func
 from datetime import datetime, timezone
 import hashlib
-
+from fastapi import Response, Depends
+from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin
+from database import Usuario
 
 app = FastAPI()
 
@@ -17,6 +19,7 @@ app.add_middleware(
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True
 )
 
 def analizar_y_registrar_libro(pdf_bytes: bytes, titulo: str, autor: str, paginas_por_parte: int, db):
@@ -192,3 +195,56 @@ def borrar_libro(libro_id: int):
         return {"ok": True}
     finally:
         db.close()
+
+@app.post("/registro")
+def registro(nombre: str = Form(...), email: str = Form(...), password: str = Form(...), response: Response = None):
+    db = SessionLocal()
+    try:
+        existe = db.query(Usuario).filter(Usuario.email == email).first()
+        if existe:
+            raise HTTPException(status_code=400, detail="El email ya está registrado")
+        
+        usuario = Usuario(
+            nombre=nombre,
+            email=email,
+            password_hash=hashear_password(password),
+            rol="usuario"
+        )
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
+        return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
+    finally:
+        db.close()
+
+
+@app.post("/login")
+def login(email: str = Form(...), password: str = Form(...), response: Response = None):
+    db = SessionLocal()
+    try:
+        usuario = db.query(Usuario).filter(Usuario.email == email).first()
+        if not usuario or not verificar_password(password, usuario.password_hash):
+            raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+        
+        token = crear_token(usuario.id, usuario.rol)
+        response.set_cookie(
+            key="kokito_token",
+            value=token,
+            httponly=True,
+            max_age=30 * 24 * 60 * 60,  # 30 días en segundos
+            samesite="lax"
+        )
+        return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
+    finally:
+        db.close()
+
+
+@app.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("kokito_token")
+    return {"ok": True}
+
+
+@app.get("/me")
+def me(usuario: Usuario = Depends(obtener_usuario_actual)):
+    return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
