@@ -2247,7 +2247,7 @@ Los capítulos se gestionan en Kokito, no en el servidor TTS. El servidor solo r
 
 ---
 
-## Sesión 15 — Rediseño de BBDD, procesado por partes y autenticación
+## Sesión 15 — Rediseño de BBDD, procesado por partes, autenticación y reproductor
 
 ### Lo que hemos construido
 
@@ -2255,14 +2255,15 @@ Los capítulos se gestionan en Kokito, no en el servidor TTS. El servidor solo r
 - **Alembic** configurado para migraciones versionadas
 - **Primera migración** aplicada y verificada en DBeaver
 - **Flujo nuevo de procesado**: PDF → hash → libros → partes → encadenamiento automático
-- **Frontend actualizado** con campos de título, autor y páginas por parte
 - **Detección de duplicados** por hash del contenido
-- **Lista de libros** en el frontend con botón de borrar para pruebas
 - **Autenticación completa**: registro, login, logout con cookies HttpOnly y JWT
 - **Contexto de autenticación global** en React (`AuthContext.jsx`)
 - **Routing por roles** con `react-router-dom`: admin → `/admin`, usuario → `/biblioteca`
-- **Panel de admin** básico con opción de ver la biblioteca como usuario normal
-- **Página de login** y protección de rutas según rol
+- **Panel de admin**: subir PDFs, lista de libros con estado, publicar/despublicar
+- **Biblioteca de usuarios** con navegación a detalle de libro
+- **Reproductor por partes** con selección de parte y estado visual
+- **Guardado de posición** cada 5 segundos, recuperado al volver al libro
+- **Acceso desde iPhone** en red local via IP del Mac
 
 ---
 
@@ -2286,26 +2287,29 @@ Antes de dar algo por terminado, preguntarse: *¿esto funcionaría igual pasando
 
 Tablas diseñadas y creadas:
 ```
-libros         → título, autor, hash, páginas, páginas_por_parte, visible
-partes         → libro_id, numero_parte, pagina_inicio, pagina_fin, estado, ruta_mp3
-usuarios       → email, nombre, password_hash, rol (admin | usuario)
-progreso_usuario     → usuario_id, libro_id, parte_id, segundo_actual
+libros              → titulo, autor, hash_contenido, num_paginas, paginas_por_parte, visible
+partes              → libro_id, numero_parte, pagina_inicio, pagina_fin, estado, ruta_mp3, duracion_segundos
+usuarios            → email, nombre, password_hash, rol (admin | usuario)
+progreso_usuario    → usuario_id, libro_id, parte_id, segundo_actual
 estado_parte_usuario → usuario_id, parte_id, estado (pendiente | en_progreso | escuchada)
-lista_deseos   → usuario_id, libro_id
-solicitudes    → usuario_id, titulo_solicitado, autor, notas, estado
-conversiones   → mantenida para historial existente
+lista_deseos        → usuario_id, libro_id
+solicitudes         → usuario_id, titulo_solicitado, autor, notas, estado
+conversiones        → mantenida para historial existente
 ```
 
 **Conceptos clave:**
-- `hash_contenido` — `hashlib.sha256(pdf_bytes).hexdigest()`. Detecta libros duplicados independientemente del nombre del archivo
-- `visible` en libros — el admin puede subir y procesar un libro sin que los usuarios lo vean hasta que lo publique
-- `duracion_segundos` en partes — necesario para que el reproductor muestre la barra de progreso correctamente
-- `progreso_usuario` y `estado_parte_usuario` son tablas separadas — una para la posición actual de escucha, otra para el historial de partes escuchadas
+- `hash_contenido` — `hashlib.sha256(pdf_bytes).hexdigest()`. Detecta libros duplicados independientemente del nombre
+- `visible` — el admin puede procesar un libro sin que los usuarios lo vean hasta publicarlo
+- `duracion_segundos` en partes — necesario para que el reproductor muestre la barra de progreso
+- `progreso_usuario` y `estado_parte_usuario` son tablas separadas — una para posición actual, otra para historial
 
 #### 2. Alembic
 ```bash
 pip install alembic
 alembic init migrations
+alembic revision --autogenerate -m "descripcion"  # Genera script de migración
+alembic upgrade head                               # Aplica todas las migraciones pendientes
+alembic downgrade -1                               # Deshace la última migración
 ```
 
 Configuración en `alembic.ini`:
@@ -2319,14 +2323,7 @@ from database import Base
 target_metadata = Base.metadata
 ```
 
-Comandos del día a día:
-```bash
-alembic revision --autogenerate -m "descripcion"  # Genera script de migración
-alembic upgrade head                               # Aplica todas las migraciones pendientes
-alembic downgrade -1                               # Deshace la última migración
-```
-
-**Problema encontrado — tipos ENUM huérfanos:** al borrar las tablas manualmente, los tipos ENUM de PostgreSQL (`rolusuario`, `estadoparte`, etc.) no se borran con ellas. Solución:
+**Problema encontrado — tipos ENUM huérfanos:** al borrar tablas manualmente, los tipos ENUM de PostgreSQL no se borran. Solución:
 ```sql
 DROP TYPE IF EXISTS rolusuario CASCADE;
 DROP TYPE IF EXISTS estadoparte CASCADE;
@@ -2337,7 +2334,7 @@ DROP TYPE IF EXISTS estadosolicitud CASCADE;
 #### 3. Flujo nuevo de procesado
 
 `main.py` — función `analizar_y_registrar_libro`:
-- Calcula hash del PDF
+- Calcula hash del PDF con `hashlib.sha256`
 - Si el libro ya existe por hash → devuelve el existente con `es_nuevo: False`
 - Si es nuevo → crea registro en `libros`, divide en partes y crea registros en `partes`
 - Encola solo la primera parte
@@ -2345,112 +2342,117 @@ DROP TYPE IF EXISTS estadosolicitud CASCADE;
 `tasks.py` — worker actualizado:
 - Recibe `parte_id` en lugar de procesar el PDF entero
 - Consulta `pagina_inicio` y `pagina_fin` de la parte en BBDD
-- Al terminar, busca la siguiente parte pendiente del mismo libro y la encola automáticamente (encadenamiento)
-- Marca la parte como `error` si falla y relanza la excepción para que Celery la registre como `FAILURE`
+- Al terminar encola automáticamente la siguiente parte pendiente del mismo libro
+- Marca la parte como `error` si falla y relanza la excepción
 
 `tts/edge.py` y `tts/google.py` — firma actualizada:
 ```python
 def process_file_with_edge(self, pdf_bytes, filename, pagina_inicio=0, pagina_fin=None)
 ```
 
-**Concepto clave — `db.flush()`:** escribe los cambios en la transacción activa sin hacer commit. Necesario para obtener el `libro.id` generado por PostgreSQL antes de crear las partes.
+**`db.flush()`** — escribe cambios en la transacción sin hacer commit. Necesario para obtener el `libro.id` antes de crear las partes.
 
 #### 4. Autenticación
 
-Librerías instaladas:
+Librerías:
 ```bash
 pip install "passlib[bcrypt]" "python-jose[cryptography]"
 ```
 
-**Problema de compatibilidad — bcrypt:** la versión más nueva de `bcrypt` no es compatible con `passlib`. Solución: fijar `bcrypt==4.0.1` en `requirements.txt`.
+**Problema de compatibilidad:** fijar `bcrypt==4.0.1` en `requirements.txt`.
 
-`backend/auth.py` — funciones centrales:
+`backend/auth.py`:
 - `hashear_password` / `verificar_password` — bcrypt via passlib
-- `crear_token` — JWT con `usuario_id`, `rol` y expiración de 30 días
-- `obtener_usuario_actual` — lee la cookie `kokito_token`, decodifica el JWT y devuelve el usuario
-- `requerir_admin` — verifica que el rol sea admin
+- `crear_token` — JWT con `usuario_id`, `rol` y expiración 30 días
+- `obtener_usuario_actual` — lee cookie `kokito_token`, decodifica JWT
+- `requerir_admin` — verifica rol admin
 
-Endpoints añadidos en `main.py`:
+Endpoints:
 - `POST /registro` — crea usuario con contraseña hasheada
-- `POST /login` — verifica credenciales y escribe cookie HttpOnly
+- `POST /login` — verifica credenciales, escribe cookie HttpOnly
 - `POST /logout` — borra la cookie
-- `GET /me` — devuelve el usuario actual usando `Depends(obtener_usuario_actual)`
+- `GET /me` — devuelve usuario actual via `Depends(obtener_usuario_actual)`
 
-Cookie configurada con:
-- `httponly=True` — inaccesible desde JavaScript
-- `samesite="lax"` — protección CSRF
-- `max_age=30*24*60*60` — 30 días
+Cookie: `httponly=True`, `samesite="none"`, `secure=False`, `max_age=30 días`
 
-CORS actualizado con `allow_credentials=True` — necesario para que el navegador envíe cookies en peticiones cross-origin.
+CORS: `allow_credentials=True` y orígenes `localhost:5173` + IP local del Mac.
 
-`SECRET_KEY` gestionada como variable de entorno en `backend/.env` (nunca en el repositorio). Cargada en Docker via `env_file` en `docker-compose.yml`.
+`SECRET_KEY` en `backend/.env`, cargada en Docker via `env_file` en `docker-compose.yml`.
 
 #### 5. Frontend — routing y autenticación
 
-`AuthContext.jsx` — contexto global:
-- Estado `usuario` accesible desde cualquier componente via `useAuth()`
-- Al arrancar, llama a `GET /me` para restaurar la sesión si la cookie sigue activa
-- Funciones `login()` y `logout()` disponibles globalmente
-- Todas las peticiones usan `credentials: "include"` para enviar la cookie
+`frontend/src/config.js`:
+```js
+const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
+export default API
+```
 
-`main.jsx` — envuelto con `<BrowserRouter>` y `<AuthProvider>`
+`frontend/.env.local`:
+```
+VITE_API_URL=http://192.168.1.94:8000
+```
+
+`vite.config.js` — para acceso desde red local:
+```js
+server: { host: '0.0.0.0', port: 5173 }
+```
+
+`AuthContext.jsx` — contexto global con `usuario`, `login()`, `logout()`. Todas las peticiones usan `credentials: "include"`.
 
 `App.jsx` — routing con `react-router-dom`:
-- `/login` — página de login (redirige si ya hay sesión)
+- `/login` — página de login
 - `/admin/*` — panel de admin (requiere rol admin)
-- `/biblioteca` — biblioteca de usuarios (requiere login)
-- `/` — redirige según rol
+- `/biblioteca` — biblioteca usuarios
+- `/libro/:id` — detalle libro con reproductor
 
-Componentes guardianes:
-- `<RutaProtegida>` — redirige a `/login` si no hay sesión
-- `<RutaAdmin>` — redirige a `/biblioteca` si el rol no es admin
+Componentes guardianes: `<RutaProtegida>` y `<RutaAdmin>`.
 
-`AdminPage.jsx` — panel de admin con botón "Ver como usuario" que renderiza `BibliotecaPage` con una barra identificativa en la parte superior.
+#### 6. Panel de admin
+
+Componentes:
+- `SubirPDF.jsx` — formulario completo: título, autor, páginas por parte, proveedor, voz de referencia, botón de procesar
+- `ListaLibros.jsx` — lista de libros con botón publicar/despublicar y borrar
+
+Endpoints nuevos:
+- `GET /libros` — lista todos los libros (admin)
+- `DELETE /libros/{id}` — borra libro y sus partes
+- `PATCH /libros/{id}/visible` — cambia visibilidad
+- `GET /libros/publicos` — lista libros visibles (usuarios)
+- `GET /libros/{id}` — detalle de libro con partes
+- `GET /partes/{id}/audio` — sirve el MP3 de una parte
+
+#### 7. Navegación admin/usuario
+
+El admin puede ver la biblioteca como usuario normal. Implementado con `navigate("/biblioteca", { state: { modoAdmin: true }, replace: true })` para no acumular historial. La barra azul de "Viendo como usuario" se muestra en `BibliotecaPage` y `LibroPage` cuando `modoAdmin` es `true`. El botón vuelve siempre a `/admin` con `replace: true`.
+
+#### 8. Reproductor y guardado de posición
+
+`LibroPage.jsx`:
+- Carga libro y progreso en paralelo con `Promise.all`
+- Si hay progreso guardado, selecciona la parte correspondiente y posiciona el audio con `onLoadedMetadata`
+- Guarda posición cada 5 segundos via `setInterval` solo si el audio está reproduciéndose
+- Lista de partes con estado visual: listo / procesando / pendiente / error
+
+Endpoints:
+- `POST /progreso` — guarda parte_id y segundo_actual del usuario
+- `GET /progreso/{libro_id}` — recupera última posición del usuario
 
 ---
 
-### Estructura actual del proyecto
-```
-kokito/
-├── backend/
-│   ├── migrations/
-│   │   └── versions/
-│   │       └── b7d77e2fe432_crear_tablas_iniciales.py
-│   ├── tts/
-│   │   ├── edge.py
-│   │   ├── google.py
-│   │   └── text_utils.py
-│   ├── main.py
-│   ├── auth.py
-│   ├── tasks.py
-│   ├── celery_app.py
-│   ├── database.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── admin/
-│   │   │   │   └── AdminPage.jsx
-│   │   │   └── usuario/
-│   │   │       └── BibliotecaPage.jsx
-│   │   ├── AuthContext.jsx
-│   │   ├── LoginPage.jsx
-│   │   ├── App.jsx
-│   │   └── index.css
-│   ├── tailwind.config.js
-│   ├── index.html
-│   └── package.json
-├── docker-compose.yml
-├── .gitignore
-└── DIARIO.md
-```
+### Cuándo hace falta `docker compose up --build`
+
+- **Nunca** para cambios en `.jsx` — Vite recarga automáticamente
+- **Nunca** para cambios en `.py` — uvicorn con `--reload` detecta los cambios
+- **Siempre** cuando se instala una librería nueva (`requirements.txt` o `package.json`)
+- **Siempre** cuando se modifica el `Dockerfile`
 
 ---
 
 ### Próximos pasos
 
-- Mover el formulario de subida de PDFs al panel de admin
-- Construir el contenido real del panel de admin: lista de libros, estado de partes, lanzar conversiones
-- Construir la biblioteca de usuarios con los libros disponibles
-- Reproductor por partes con guardado de posición
+- Sistema de solicitudes de libros para usuarios
+- Mejora estética general (pasada completa de diseño)
+- Deploy en el mini PC (Ubuntu Server, Docker, acceso desde red local)
+- Marcar partes como escuchadas (`estado_parte_usuario`)
+- Lista de deseos
+- Notificaciones por email: al admin cuando llega una solicitud, a los usuarios cuando se publica un libro que han solicitado (Gmail + smtplib, credenciales en `.env`)
