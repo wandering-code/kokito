@@ -1,71 +1,97 @@
 import { useState, useEffect } from "react"
 import API from "../../config"
+import "./ListaLibros.css"
 
 export default function ListaLibros({ refresh }) {
   const [libros, setLibros] = useState([])
 
   function cargarLibros() {
     fetch(`${API}/libros`, { credentials: "include" })
-      .then(res => res.json())
-      .then(data => setLibros(data))
+      .then(r => r.json())
+      .then(data => Array.isArray(data) ? setLibros(data) : setLibros([]))
   }
 
-  useEffect(() => {
-    cargarLibros()
-  }, [refresh])
-
-  async function borrarLibro(id) {
-    await fetch(`${API}/libros/${id}`, {
-      method: "DELETE",
-      credentials: "include"
-    })
-    cargarLibros()
-  }
+  useEffect(() => { cargarLibros() }, [refresh])
 
   async function cambiarVisibilidad(id, visible) {
     await fetch(`${API}/libros/${id}/visible?visible=${visible}`, {
-      method: "PATCH",
-      credentials: "include"
+      method: "PATCH", credentials: "include"
     })
     cargarLibros()
   }
 
-  if (libros.length === 0) return null
+  async function borrarLibro(id) {
+    if (!window.confirm("¿Seguro que quieres borrar este libro?")) return
+    await fetch(`${API}/libros/${id}`, { method: "DELETE", credentials: "include" })
+    cargarLibros()
+  }
+
+  function estadoBadge(libro) {
+    const tienePartes = libro.partes > 0
+    const procesando  = false // futuros: comprobar si alguna parte está procesando
+    if (!tienePartes)   return "privado"
+    if (libro.visible)  return "publicado"
+    return "privado"
+  }
+
+  if (libros.length === 0) return (
+    <p className="ll-empty">No hay libros en el sistema todavía</p>
+  )
 
   return (
-    <div className="bg-gray-900 rounded-2xl p-6 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Libros en el sistema</h2>
-      <div className="flex flex-col gap-2">
-        {libros.map(libro => (
-          <div key={libro.id} className="bg-gray-800 rounded-xl px-4 py-3 flex justify-between items-center">
-            <div className="flex flex-col gap-1">
-              <span className="text-white text-sm font-medium">{libro.titulo}</span>
-              <span className="text-gray-500 text-xs">
+    <div className="ll-list">
+      {libros.map(libro => {
+        const badge = estadoBadge(libro)
+        return (
+          <div key={libro.id} className="ll-row">
+            <div className="ll-cover">
+              {libro.portada_url
+                ? <img src={libro.portada_url} alt={libro.titulo} />
+                : <CoverPlaceholder />
+              }
+            </div>
+            <div className="ll-info">
+              <div className="ll-titulo">{libro.titulo}</div>
+              <div className="ll-meta">
                 {libro.autor ? `${libro.autor} · ` : ""}
                 {libro.num_paginas} págs · {libro.partes} partes
-              </span>
+              </div>
+              <div className="ll-partes">
+                {Array.from({ length: libro.partes }).map((_, i) => (
+                  <div key={i} className="ll-dot listo" />
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="ll-actions">
+              <span className={`ll-badge ${badge}`}>
+                {badge === "publicado" ? "Publicado" : "Sin publicar"}
+              </span>
               <button
+                className="ll-btn-vis"
                 onClick={() => cambiarVisibilidad(libro.id, !libro.visible)}
-                className={`text-xs px-3 py-1 rounded-lg transition font-medium ${
-                  libro.visible
-                    ? "bg-green-800 text-green-300 hover:bg-green-700"
-                    : "bg-gray-700 text-gray-400 hover:bg-gray-600"
-                }`}
               >
-                {libro.visible ? "Publicado" : "Publicar"}
+                {libro.visible ? "Despublicar" : "Publicar"}
               </button>
-              <button
-                onClick={() => borrarLibro(libro.id)}
-                className="text-red-500 hover:text-red-400 text-xs transition"
-              >
-                Borrar
+              <button className="ll-btn-del" onClick={() => borrarLibro(libro.id)}>
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none"
+                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <line x1="2" y1="2" x2="12" y2="12"/>
+                  <line x1="12" y1="2" x2="2" y2="12"/>
+                </svg>
               </button>
             </div>
           </div>
-        ))}
-      </div>
+        )
+      })}
     </div>
+  )
+}
+
+function CoverPlaceholder() {
+  return (
+    <svg width="20" height="28" viewBox="0 0 20 28" fill="none">
+      <rect x="1" y="1" width="18" height="26" rx="2"
+        fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1"/>
+    </svg>
   )
 }

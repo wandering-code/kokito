@@ -2,78 +2,259 @@ import { useState, useEffect } from "react"
 import { useAuth } from "../../AuthContext"
 import { useNavigate, useLocation } from "react-router-dom"
 import API from "../../config"
+import "./BibliotecaPage.css"
+
+const VISTA_KEY = "kokito_vista_biblioteca"
 
 export default function BibliotecaPage({ modoAdmin: modoAdminProp = false }) {
   const { usuario, logout } = useAuth()
   const navigate = useNavigate()
-  const [libros, setLibros] = useState([])
   const location = useLocation()
   const modoAdmin = modoAdminProp || location.state?.modoAdmin || false
 
+  const [libros, setLibros]   = useState([])
+  const [progreso, setProgreso] = useState({})
+  const [vista, setVista]     = useState(
+    () => localStorage.getItem(VISTA_KEY) || "grid"
+  )
+
   useEffect(() => {
     fetch(`${API}/libros/publicos`, { credentials: "include" })
-      .then(res => res.json())
-      .then(data => setLibros(data))
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setLibros(data)
+        } else {
+          console.error("Respuesta inesperada de /libros/publicos:", data)
+          setLibros([])
+        }
+      })
+      .catch(err => {
+        console.error("Error al cargar libros:", err)
+        setLibros([])
+      })
   }, [])
 
+  useEffect(() => {
+    if (libros.length === 0) return
+    libros.forEach(libro => {
+      fetch(`${API}/progreso/${libro.id}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) setProgreso(p => ({ ...p, [libro.id]: data }))
+        })
+    })
+  }, [libros])
+
+  function cambiarVista(v) {
+    setVista(v)
+    localStorage.setItem(VISTA_KEY, v)
+  }
+
+  function estadoLibro(libro) {
+    const p = progreso[libro.id]
+    if (!p) return "nuevo"
+    if (p.completado) return "completado"
+    return "progreso"
+  }
+
+  function porcentajeProgreso(libro) {
+    const p = progreso[libro.id]
+    if (!p || !libro.partes || libro.partes === 0) return 0
+    return Math.round(((p.parte_actual - 1) / libro.partes) * 100)
+  }
+
+  function irAlLibro(libro) {
+    navigate(`/libro/${libro.id}`, { state: { modoAdmin } })
+  }
+
   return (
-    <div className={`min-h-screen bg-gray-950 text-white p-8 ${modoAdmin ? "pt-16" : ""}`}>
+    <div className="bib-root">
 
       {modoAdmin && (
-        <div style={{backgroundColor: "#1e3a5f"}} className="fixed top-0 left-0 right-0 px-6 py-2 flex justify-between items-center z-50">
-          <span className="text-white text-xs font-medium">👁 Viendo como usuario</span>
-        <button
-          onClick={() => navigate("/admin", { replace: true })}
-          style={{backgroundColor: "#2d5a8e"}}
-          className="text-white text-xs px-3 py-1 rounded-lg hover:opacity-80 transition"
-        >
-          ← Volver al panel de admin
-        </button>
+        <div className="bib-admin-bar">
+          <span>Viendo como usuario</span>
+          <button className="bib-admin-back" onClick={() => navigate("/admin", { replace: true })}>
+            ← Volver al panel de admin
+          </button>
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto flex flex-col gap-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Biblioteca</h1>
-          <div className="flex items-center gap-3">
-            <span className="text-gray-400 text-sm">Hola, {usuario.nombre}</span>
-            {!modoAdmin && (
-              <button
-                onClick={logout}
-                className="text-white text-sm px-4 py-2 rounded-lg transition font-medium"
-                style={{backgroundColor: "#374151"}}
-              >
-                Cerrar sesión
-              </button>
-            )}
+      {/* Barra superior */}
+      <div className="bib-topbar">
+        <div>
+          <span className="bib-brand-name">kokito</span>
+          <span className="bib-brand-tag">tu biblioteca de audiolibros</span>
+        </div>
+        <div className="bib-user">
+          <span className="bib-user-name">Hola, {usuario.nombre}</span>
+          {!modoAdmin && (
+            <button className="bib-btn-out" onClick={logout}>Cerrar sesión</button>
+          )}
+        </div>
+      </div>
+
+      {/* Contenido */}
+      <div className="bib-content">
+
+        {/* Toolbar */}
+        <div className="bib-toolbar">
+          <div className="bib-toolbar-left">
+            <span className="bib-title">Biblioteca</span>
+            <span className="bib-filter-hint">filtros próximamente</span>
+          </div>
+          <div className="bib-view-toggle">
+            <button
+              className={`bib-vbtn ${vista === "grid" ? "active" : ""}`}
+              onClick={() => cambiarVista("grid")}
+              title="Cuadrícula"
+            >
+              <IconGrid />
+            </button>
+            <button
+              className={`bib-vbtn ${vista === "list" ? "active" : ""}`}
+              onClick={() => cambiarVista("list")}
+              title="Lista"
+            >
+              <IconList />
+            </button>
           </div>
         </div>
 
-        {libros.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-gray-600">
-            <span className="text-5xl">📚</span>
-            <p className="text-sm">No hay libros disponibles todavía</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {libros.map(libro => (
-              <div
-                key={libro.id}
-                className="bg-gray-900 rounded-2xl px-6 py-4 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition"
-                onClick={() => navigate(`/libro/${libro.id}`, { state: { modoAdmin } })}
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="text-white font-medium">{libro.titulo}</span>
-                  {libro.autor && (
-                    <span className="text-gray-500 text-sm">{libro.autor}</span>
-                  )}
-                  <span className="text-gray-600 text-xs">{libro.num_paginas} páginas · {libro.partes} partes</span>
-                </div>
-              </div>
-            ))}
+        {/* Sin libros */}
+        {libros.length === 0 && (
+          <div className="bib-empty">
+            <IconLibro />
+            <p>No hay libros disponibles todavía</p>
           </div>
         )}
+
+        {/* Vista cuadrícula */}
+        {libros.length > 0 && vista === "grid" && (
+          <div className="bib-grid">
+            {libros.map(libro => {
+              const estado = estadoLibro(libro)
+              return (
+                <div key={libro.id} className="bib-card" onClick={() => irAlLibro(libro)}>
+                  {libro.portada_url
+                    ? <img className="bib-card-cover" src={libro.portada_url} alt={libro.titulo} />
+                    : <CoverPlaceholder />
+                  }
+                  <div className="bib-card-info">
+                    <div className="bib-card-title">{libro.titulo}</div>
+                    {libro.autor && <div className="bib-card-author">{libro.autor}</div>}
+                    <span className={`bib-badge ${estado}`}>
+                      {estado === "progreso" && "En progreso"}
+                      {estado === "nuevo" && "Nuevo"}
+                      {estado === "completado" && "Completado"}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Vista lista */}
+        {libros.length > 0 && vista === "list" && (
+          <div className="bib-list">
+            {libros.map(libro => {
+              const estado = estadoLibro(libro)
+              const pct    = porcentajeProgreso(libro)
+              return (
+                <div key={libro.id} className="bib-row" onClick={() => irAlLibro(libro)}>
+                  <div className="bib-row-cover">
+                    {libro.portada_url
+                      ? <img src={libro.portada_url} alt={libro.titulo} />
+                      : <CoverPlaceholderSmall />
+                    }
+                  </div>
+                  <div className="bib-row-info">
+                    <div className="bib-row-title">{libro.titulo}</div>
+                    {libro.autor && <div className="bib-row-author">{libro.autor}</div>}
+                    <div className="bib-row-meta">
+                      {libro.num_paginas} páginas · {libro.partes} partes
+                    </div>
+                    {estado === "progreso" && (
+                      <div className="bib-row-prog">
+                        <div className="bib-row-prog-bar" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className={`bib-row-action ${estado === "completado" ? "completado" : ""}`}
+                    onClick={e => { e.stopPropagation(); irAlLibro(libro) }}
+                  >
+                    {estado === "progreso"   && "Continuar"}
+                    {estado === "nuevo"      && "Empezar"}
+                    {estado === "completado" && "Completado"}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
       </div>
     </div>
+  )
+}
+
+function CoverPlaceholder() {
+  return (
+    <div className="bib-card-cover-placeholder">
+      <svg width="32" height="42" viewBox="0 0 28 36" fill="none">
+        <rect x="2" y="2" width="24" height="32" rx="3"
+          fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+        <line x1="7" y1="11" x2="21" y2="11" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+        <line x1="7" y1="16" x2="21" y2="16" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+        <line x1="7" y1="21" x2="16" y2="21" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+      </svg>
+    </div>
+  )
+}
+
+function CoverPlaceholderSmall() {
+  return (
+    <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
+      <rect x="1" y="1" width="22" height="30" rx="2"
+        fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1"/>
+    </svg>
+  )
+}
+
+function IconGrid() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <rect x="1" y="1" width="6" height="6" rx="1.5"/>
+      <rect x="9" y="1" width="6" height="6" rx="1.5"/>
+      <rect x="1" y="9" width="6" height="6" rx="1.5"/>
+      <rect x="9" y="9" width="6" height="6" rx="1.5"/>
+    </svg>
+  )
+}
+
+function IconList() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <rect x="1" y="2" width="4" height="4" rx="1"/>
+      <rect x="7" y="3" width="8" height="1.5" rx="0.75"/>
+      <rect x="7" y="5" width="5" height="1.2" rx="0.6"/>
+      <rect x="1" y="8" width="4" height="4" rx="1"/>
+      <rect x="7" y="9" width="8" height="1.5" rx="0.75"/>
+      <rect x="7" y="11" width="5" height="1.2" rx="0.6"/>
+    </svg>
+  )
+}
+
+function IconLibro() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 28 36" fill="none">
+      <rect x="2" y="2" width="24" height="32" rx="3"
+        fill="none" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="7" y1="11" x2="21" y2="11" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="7" y1="16" x2="21" y2="16" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="7" y1="21" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>
   )
 }

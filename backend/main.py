@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
@@ -9,11 +9,10 @@ from sqlalchemy import func
 from datetime import datetime, timezone
 import hashlib
 from fastapi import Response, Depends
-from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin
-from database import Usuario
+from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin, obtener_usuario_opcional
 import os
-from database import ProgresoUsuario
 from datetime import datetime, timezone
+from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario
 
 app = FastAPI()
 
@@ -181,12 +180,79 @@ def listar_libros():
                 "num_paginas": l.num_paginas,
                 "fecha_subida": l.fecha_subida,
                 "visible": l.visible,
-                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count()
+                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count(),
+                "portada_url": l.portada_url
             }
             for l in libros
         ]
     finally:
         db.close()
+
+
+@app.get("/libros/publicos")
+def listar_libros_publicos():
+    db = SessionLocal()
+    try:
+        libros = db.query(Libro).filter(Libro.visible == True).order_by(Libro.fecha_subida.desc()).all()
+        return [
+            {
+                "id": l.id,
+                "titulo": l.titulo,
+                "autor": l.autor,
+                "num_paginas": l.num_paginas,
+                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count(),
+                "portada_url": l.portada_url
+            }
+            for l in libros
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/libros/{libro_id}")
+def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
+    db = SessionLocal()
+    try:
+        libro = db.query(Libro).filter(Libro.id == libro_id).first()
+        if not libro:
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
+
+        partes = db.query(Parte).filter(
+            Parte.libro_id == libro_id
+        ).order_by(Parte.numero_parte).all()
+
+        escuchadas = set()
+        if usuario:
+            escuchadas = {
+                r.parte_id
+                for r in db.query(EstadoParteUsuario).filter(
+                    EstadoParteUsuario.usuario_id == usuario.id,
+                    EstadoParteUsuario.estado == EstadoPartUsuario.escuchada
+                ).all()
+            }
+
+        return {
+            "id": libro.id,
+            "titulo": libro.titulo,
+            "autor": libro.autor,
+            "num_paginas": libro.num_paginas,
+            "portada_url": libro.portada_url,
+            "partes": [
+                {
+                    "id": p.id,
+                    "numero_parte": p.numero_parte,
+                    "pagina_inicio": p.pagina_inicio,
+                    "pagina_fin": p.pagina_fin,
+                    "estado": p.estado,
+                    "duracion_segundos": p.duracion_segundos,
+                    "escuchada": p.id in escuchadas,
+                }
+                for p in partes
+            ]
+        }
+    finally:
+        db.close()
+
 
 @app.delete("/libros/{libro_id}")
 def borrar_libro(libro_id: int):
@@ -197,12 +263,13 @@ def borrar_libro(libro_id: int):
             db.delete(parte)
         libro = db.query(Libro).filter(Libro.id == libro_id).first()
         if not libro:
-            return {"error": "Libro no encontrado"}
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
         db.delete(libro)
         db.commit()
         return {"ok": True}
     finally:
         db.close()
+        
 
 @app.post("/registro")
 def registro(nombre: str = Form(...), email: str = Form(...), password: str = Form(...), response: Response = None):
@@ -271,51 +338,6 @@ def cambiar_visibilidad(libro_id: int, visible: bool):
     finally:
         db.close()
 
-@app.get("/libros/publicos")
-def listar_libros_publicos():
-    db = SessionLocal()
-    try:
-        libros = db.query(Libro).filter(Libro.visible == True).order_by(Libro.fecha_subida.desc()).all()
-        return [
-            {
-                "id": l.id,
-                "titulo": l.titulo,
-                "autor": l.autor,
-                "num_paginas": l.num_paginas,
-                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count()
-            }
-            for l in libros
-        ]
-    finally:
-        db.close()
-
-@app.get("/libros/{libro_id}")
-def detalle_libro(libro_id: int):
-    db = SessionLocal()
-    try:
-        libro = db.query(Libro).filter(Libro.id == libro_id).first()
-        if not libro:
-            raise HTTPException(status_code=404, detail="Libro no encontrado")
-        partes = db.query(Parte).filter(Parte.libro_id == libro_id).order_by(Parte.numero_parte).all()
-        return {
-            "id": libro.id,
-            "titulo": libro.titulo,
-            "autor": libro.autor,
-            "num_paginas": libro.num_paginas,
-            "partes": [
-                {
-                    "id": p.id,
-                    "numero_parte": p.numero_parte,
-                    "pagina_inicio": p.pagina_inicio,
-                    "pagina_fin": p.pagina_fin,
-                    "estado": p.estado,
-                    "duracion_segundos": p.duracion_segundos
-                }
-                for p in partes
-            ]
-        }
-    finally:
-        db.close()
 
 @app.get("/partes/{parte_id}/audio")
 def audio_parte(parte_id: int):
@@ -329,6 +351,67 @@ def audio_parte(parte_id: int):
         if not parte.ruta_mp3 or not os.path.exists(parte.ruta_mp3):
             raise HTTPException(status_code=404, detail="Archivo de audio no encontrado")
         return FileResponse(parte.ruta_mp3, media_type="audio/mpeg")
+    finally:
+        db.close()
+
+
+@app.post("/progreso/parte")
+def guardar_progreso_parte(
+    parte_id: int = Form(...),
+    segundo_actual: int = Form(...),
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        registro = db.query(ProgresoParte).filter(
+            ProgresoParte.usuario_id == usuario.id,
+            ProgresoParte.parte_id == parte_id
+        ).first()
+        if registro:
+            registro.segundo_actual = segundo_actual
+            registro.fecha_actualizacion = datetime.now(timezone.utc)
+        else:
+            registro = ProgresoParte(
+                usuario_id=usuario.id,
+                parte_id=parte_id,
+                segundo_actual=segundo_actual
+            )
+            db.add(registro)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.get("/progreso/libro/{libro_id}")
+def obtener_progreso_libro(
+    libro_id: int,
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        partes = db.query(Parte).filter(Parte.libro_id == libro_id).all()
+        ids_partes = [p.id for p in partes]
+
+        registros = db.query(ProgresoParte).filter(
+            ProgresoParte.usuario_id == usuario.id,
+            ProgresoParte.parte_id.in_(ids_partes)
+        ).all()
+
+        progreso_por_parte = {r.parte_id: r.segundo_actual for r in registros}
+
+        # Última parte escuchada — la de mayor fecha
+        ultimo = db.query(ProgresoParte).filter(
+            ProgresoParte.usuario_id == usuario.id,
+            ProgresoParte.parte_id.in_(ids_partes)
+        ).order_by(ProgresoParte.fecha_actualizacion.desc()).first()
+
+        return {
+            "tiene_progreso": len(registros) > 0,
+            "ultima_parte_id": ultimo.parte_id if ultimo else None,
+            "ultimo_segundo": ultimo.segundo_actual if ultimo else 0,
+            "progreso_por_parte": progreso_por_parte
+        }
     finally:
         db.close()
 
@@ -385,3 +468,36 @@ def obtener_progreso(libro_id: int, usuario: Usuario = Depends(obtener_usuario_a
         }
     finally:
         db.close()
+
+@app.post("/partes/{parte_id}/escuchada")
+def marcar_escuchada(parte_id: int, usuario: Usuario = Depends(obtener_usuario_actual)):
+    db = SessionLocal()
+    try:
+        registro = db.query(EstadoParteUsuario).filter(
+            EstadoParteUsuario.usuario_id == usuario.id,
+            EstadoParteUsuario.parte_id == parte_id
+        ).first()
+        if registro:
+            registro.estado = EstadoPartUsuario.escuchada
+            registro.fecha_actualizacion = datetime.now(timezone.utc)
+        else:
+            registro = EstadoParteUsuario(
+                usuario_id=usuario.id,
+                parte_id=parte_id,
+                estado=EstadoPartUsuario.escuchada
+            )
+            db.add(registro)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+VOCES_DIR = "/app/voces"
+
+@app.get("/voces/{nombre}")
+def servir_voz(nombre: str):
+    ruta = os.path.join(VOCES_DIR, nombre)
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="Voz no encontrada")
+    media = "audio/mpeg" if nombre.endswith(".mp3") else "audio/wav"
+    return FileResponse(ruta, media_type=media)

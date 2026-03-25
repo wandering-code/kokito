@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Cookie, HTTPException, status
+from fastapi import Cookie, HTTPException, Request, status
 from database import SessionLocal, Usuario
 import os
 
@@ -64,3 +64,20 @@ def requerir_admin(usuario: Usuario = None):
             detail="Se requiere rol de administrador"
         )
     return usuario
+
+def obtener_usuario_opcional(request: Request):
+    from fastapi import Request
+    token = request.cookies.get("kokito_token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        usuario_id = payload.get("usuario_id")
+        if not usuario_id:
+            return None
+        db = SessionLocal()
+        usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        db.close()
+        return usuario
+    except Exception:
+        return None

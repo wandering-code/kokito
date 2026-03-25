@@ -47,6 +47,7 @@ class Libro(Base):
     visible           = Column(Boolean, default=False, nullable=False)
     fecha_subida      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     subido_por        = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    portada_url       = Column(String, nullable=True)
 
     partes            = relationship("Parte", back_populates="libro")
 
@@ -87,6 +88,16 @@ class ProgresoUsuario(Base):
     libro_id            = Column(Integer, ForeignKey("libros.id"), nullable=False)
     parte_id            = Column(Integer, ForeignKey("partes.id"), nullable=False)
     segundo_actual      = Column(Integer, default=0)
+    fecha_actualizacion = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ProgresoParte(Base):
+    __tablename__ = "progreso_parte"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    usuario_id     = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    parte_id       = Column(Integer, ForeignKey("partes.id"), nullable=False)
+    segundo_actual = Column(Integer, default=0)
     fecha_actualizacion = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

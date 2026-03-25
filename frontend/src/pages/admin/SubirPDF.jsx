@@ -1,64 +1,77 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import API from "../../config"
+import "./SubirPDF.css"
+
+const VOCES_PREDEFINIDAS = [
+  { id: "voz_masculina_grave.mp3", nombre: "Voz 1", descripcion: "Masculina · grave" },
+  { id: "voz_masculina_media.mp3", nombre: "Voz 2", descripcion: "Masculina · media" },
+  { id: "voz_femenina_suave.mp3", nombre: "Voz 3", descripcion: "Femenina · suave" },
+]
 
 export default function SubirPDF({ onLibroSubido }) {
-  const [titulo, setTitulo] = useState("")
-  const [autor, setAutor] = useState("")
+  const [titulo, setTitulo]               = useState("")
+  const [autor, setAutor]                 = useState("")
   const [paginasPorParte, setPaginasPorParte] = useState(50)
-  const [proveedor, setProveedor] = useState("edge")
-  const [estado, setEstado] = useState("inicial")
-  const [progreso, setProgreso] = useState(0)
-  const [error, setError] = useState(null)
-  const [mp3Url, setMp3Url] = useState(null)
-  const [vozArchivo, setVozArchivo] = useState(null)
-  const [archivo, setArchivo] = useState(null)
+  const [proveedor, setProveedor]         = useState("edge")
+  const [vozSeleccionada, setVozSeleccionada] = useState("voz_1")
+  const [vozArchivo, setVozArchivo]       = useState(null)
+  const [archivo, setArchivo]             = useState(null)
+  const [estado, setEstado]               = useState("inicial")
+  const [progreso, setProgreso]           = useState(0)
+  const [error, setError]                 = useState(null)
 
-  async function handleArchivo() {
-    if (!archivo) return
+  function reproducirVoz(vozId, e) {
+    e.stopPropagation()
+    const audio = new Audio(`${API}/voces/${vozId}`)
+    audio.play()
+  }
 
-    if (!titulo.trim()) {
-      setError("El título es obligatorio")
-      return
-    }
+  async function handleSubmit() {
+    if (!archivo)       return setError("Selecciona un PDF")
+    if (!titulo.trim()) return setError("El título es obligatorio")
 
     setEstado("procesando")
     setError(null)
     setProgreso(0)
 
-    const formData = new FormData()
-    formData.append("pdf", archivo)
-    formData.append("titulo", titulo)
-    formData.append("autor", autor)
-    formData.append("paginas_por_parte", paginasPorParte)
-    formData.append("proveedor", proveedor)
-    if (vozArchivo) formData.append("voz", vozArchivo)
+    const fd = new FormData()
+    fd.append("pdf", archivo)
+    fd.append("titulo", titulo)
+    fd.append("autor", autor)
+    fd.append("paginas_por_parte", paginasPorParte)
+    fd.append("proveedor", proveedor)
+
+    if (proveedor === "local") {
+      if (vozArchivo) {
+        fd.append("voz", vozArchivo)
+      } else if (vozSeleccionada) {
+        // Fetchear el archivo de voz predefinida y añadirlo como File
+        const vozRes = await fetch(`${API}/voces/${vozSeleccionada}`)
+        const vozBlob = await vozRes.blob()
+        const vozFile = new File([vozBlob], vozSeleccionada, { type: "audio/mpeg" })
+        fd.append("voz", vozFile)
+      }
+    }
 
     const res = await fetch(`${API}/convertir`, {
-      method: "POST",
-      body: formData,
-      credentials: "include"
+      method: "POST", body: fd, credentials: "include"
     })
     const data = await res.json()
 
     if (!data.es_nuevo) {
       setEstado("inicial")
-      setError(`Este libro ya existe en el sistema: "${data.titulo}"`)
+      setError(`Este libro ya existe: "${data.titulo}"`)
       return
     }
 
     const intervalo = setInterval(async () => {
-      const res = await fetch(`${API}/resultado/${data.tarea_id}`, {
-        credentials: "include"
-      })
-
-      if (res.headers.get("content-type")?.includes("audio")) {
+      const r = await fetch(`${API}/resultado/${data.tarea_id}`, { credentials: "include" })
+      if (r.headers.get("content-type")?.includes("audio")) {
         clearInterval(intervalo)
-        const blob = await res.blob()
-        setMp3Url(URL.createObjectURL(blob))
         setEstado("listo")
         if (onLibroSubido) onLibroSubido()
       } else {
-        const result = await res.json()
+        const result = await r.json()
         if (result.estado === "error") {
           clearInterval(intervalo)
           setError(result.detalle)
@@ -75,141 +88,135 @@ export default function SubirPDF({ onLibroSubido }) {
   }
 
   function resetear() {
-    setEstado("inicial")
-    setMp3Url(null)
-    setError(null)
-    setProgreso(0)
-    setTitulo("")
-    setAutor("")
-    setArchivo(null)
-    setVozArchivo(null)
+    setEstado("inicial"); setError(null); setProgreso(0)
+    setTitulo(""); setAutor(""); setArchivo(null); setVozArchivo(null)
+    setVozSeleccionada("voz_1"); setProveedor("edge")
   }
 
+  function reproducirVoz(vozId, e) {
+    e.stopPropagation()
+    const audio = new Audio(`${API}/voces/${vozId}`)
+    audio.play()
+  }
+
+  if (estado === "procesando") return (
+    <div className="spdf-progreso">
+      <div className="spdf-spinner" />
+      <div className="spdf-prog-label">Procesando primera parte… {progreso}%</div>
+      <div className="spdf-prog-bar-wrap">
+        <div className="spdf-prog-bar" style={{ width: `${progreso}%` }} />
+      </div>
+    </div>
+  )
+
+  if (estado === "listo") return (
+    <div className="spdf-listo">
+      <div className="spdf-listo-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M4 10l4 4 8-8" stroke="var(--cr-green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <div className="spdf-listo-msg">Primera parte lista</div>
+      <div className="spdf-listo-sub">El resto se procesa en segundo plano.</div>
+      <button className="spdf-btn-otro" onClick={resetear}>Subir otro libro</button>
+    </div>
+  )
+
   return (
-    <div className="bg-gray-900 rounded-2xl p-6 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Subir nuevo libro</h2>
+    <div className="spdf-grid">
+      <div className="spdf-row">
+        <div className="spdf-field spdf-full">
+          <label>Título</label>
+          <input type="text" placeholder="Título del libro" value={titulo}
+            onChange={e => setTitulo(e.target.value)} />
+        </div>
+        <div className="spdf-field">
+          <label>Autor</label>
+          <input type="text" placeholder="Autor (opcional)" value={autor}
+            onChange={e => setAutor(e.target.value)} />
+        </div>
+        <div className="spdf-field">
+          <label>Páginas por parte</label>
+          <input type="number" value={paginasPorParte} min={10} max={200}
+            onChange={e => setPaginasPorParte(parseInt(e.target.value))} />
+        </div>
+      </div>
 
-      {estado === "inicial" && (
-        <div className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="Título del libro *"
-            value={titulo}
-            onChange={e => setTitulo(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-          />
-          <input
-            type="text"
-            placeholder="Autor (opcional)"
-            value={autor}
-            onChange={e => setAutor(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-          />
-          <div className="flex items-center gap-3">
-            <label className="text-gray-400 text-sm whitespace-nowrap">Páginas por parte:</label>
-            <input
-              type="number"
-              value={paginasPorParte}
-              onChange={e => setPaginasPorParte(parseInt(e.target.value))}
-              min={10}
-              max={200}
-              className="w-24 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-            />
-          </div>
+      <div className="spdf-field">
+        <label>Motor de voz</label>
+        <div className="spdf-tts">
+          <button className={`spdf-tts-btn ${proveedor === "edge" ? "active" : ""}`}
+            onClick={() => setProveedor("edge")}>
+            Edge TTS
+          </button>
+          <button className={`spdf-tts-btn ${proveedor === "local" ? "active" : ""}`}
+            onClick={() => setProveedor("local")}>
+            Coqui (IA local)
+          </button>
+        </div>
+      </div>
 
-          <div className="w-full flex rounded-xl overflow-hidden border border-gray-700">
-            {["edge", "google", "local"].map(p => (
-              <button
-                key={p}
-                onClick={() => setProveedor(p)}
-                className={`flex-1 py-2 text-sm font-medium transition ${
-                  proveedor === p
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-800 text-gray-400 hover:text-white"
-                }`}
+      {proveedor === "local" && (
+        <div className="spdf-coqui">
+          <div className="spdf-coqui-title">Voz</div>
+          <div className="spdf-voces">
+            {VOCES_PREDEFINIDAS.map(voz => (
+              <div
+                key={voz.id}
+                className={`spdf-voz ${!vozArchivo && vozSeleccionada === voz.id ? "selected" : ""}`}
+                onClick={() => { setVozSeleccionada(voz.id); setVozArchivo(null) }}
               >
-                {p === "edge" ? "Edge TTS" : p === "google" ? "Google TTS" : "Local (GPU)"}
-              </button>
+                <div className="spdf-voz-name">{voz.nombre}</div>
+                <div className="spdf-voz-desc">{voz.descripcion}</div>
+                <button className="spdf-voz-play" onClick={e => reproducirVoz(voz.id, e)}>
+                  <svg width="8" height="10" viewBox="0 0 8 10" fill="var(--cr-brown)">
+                    <polygon points="0,0 8,5 0,10"/>
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
 
-          {proveedor === "local" && (
-            <div className="w-full flex flex-col gap-2">
-              <span className="text-sm text-gray-400">Archivo de voz de referencia:</span>
-              <label className="w-full cursor-pointer border border-gray-700 hover:border-blue-500 transition rounded-xl px-4 py-3 flex items-center gap-3 text-gray-400 hover:text-blue-400">
-                <span className="text-xl">🎙️</span>
-                <span className="text-sm truncate">
-                  {vozArchivo ? vozArchivo.name : "Selecciona un MP3 o WAV"}
-                </span>
-                <input
-                  type="file"
-                  accept=".mp3,.wav"
-                  className="hidden"
-                  onChange={e => setVozArchivo(e.target.files[0])}
-                />
-              </label>
-            </div>
-          )}
-
-          <label className="w-full cursor-pointer border-2 border-dashed border-gray-700 hover:border-blue-500 transition rounded-xl p-6 flex flex-col items-center gap-2 text-gray-400 hover:text-blue-400">
-            <span className="text-3xl">📄</span>
-            <span className="text-sm">
-              {archivo ? archivo.name : "Haz clic para seleccionar un PDF"}
-            </span>
-            <input
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={e => setArchivo(e.target.files[0])}
-            />
+          <label className="spdf-voz-custom">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+              <circle cx="7" cy="5" r="2.5"/>
+              <path d="M2 12c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
+            </svg>
+            <span>{vozArchivo ? vozArchivo.name : "O sube tu propio archivo de voz (MP3 / WAV)"}</span>
+            <input type="file" accept=".mp3,.wav" className="hidden" style={{ display: "none" }}
+              onChange={e => { setVozArchivo(e.target.files[0]); setVozSeleccionada(null) }} />
           </label>
-
-          {archivo && (
-            <button
-              onClick={handleArchivo}
-              className="w-full bg-blue-600 hover:bg-blue-500 transition text-white font-medium py-2 rounded-xl text-sm"
-            >
-              Procesar PDF
-            </button>
+          {vozArchivo && (
+            <div className="spdf-voz-nombre">{vozArchivo.name}</div>
           )}
-
-          {error && <p className="text-red-400 text-sm text-center">{error}</p>}
         </div>
       )}
 
-      {estado === "procesando" && (
-        <div className="flex flex-col items-center gap-4 py-4">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">Procesando primera parte... {progreso}%</p>
-          <div className="w-full bg-gray-700 rounded-full h-2">
-            <div
-              className="bg-blue-500 h-2 rounded-full transition-all"
-              style={{ width: `${progreso}%` }}
-            />
-          </div>
-        </div>
-      )}
+      <label className={`spdf-drop ${archivo ? "con-archivo" : ""}`}>
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
+          stroke={archivo ? "var(--cr-green)" : "var(--cr-tan)"} strokeWidth="1.5" strokeLinecap="round">
+          <rect x="4" y="2" width="20" height="24" rx="3"/>
+          <line x1="8" y1="9"  x2="20" y2="9"/>
+          <line x1="8" y1="14" x2="20" y2="14"/>
+          <line x1="8" y1="19" x2="15" y2="19"/>
+        </svg>
+        {archivo
+          ? <span className="spdf-drop-nombre">{archivo.name}</span>
+          : <span className="spdf-drop-label"><strong style={{color:"var(--cr-brown)"}}>Selecciona un PDF</strong> o arrastra aquí</span>
+        }
+        <input type="file" accept=".pdf" style={{ display: "none" }}
+          onChange={e => setArchivo(e.target.files[0])} />
+      </label>
 
-      {estado === "listo" && (
-        <div className="flex flex-col items-center gap-4">
-          <span className="text-4xl">✅</span>
-          <p className="text-gray-300 text-sm">Primera parte lista. El resto se procesa en segundo plano.</p>
-          <audio controls src={mp3Url} className="w-full" />
-          <a
-            href={mp3Url}
-            download="kokito.mp3"
-            className="w-full text-center bg-blue-600 hover:bg-blue-500 transition text-white font-medium py-2 rounded-xl text-sm"
-          >
-            Descargar MP3
-          </a>
-          <button
-            onClick={resetear}
-            className="text-gray-500 hover:text-gray-300 text-xs transition"
-          >
-            Subir otro PDF
-          </button>
-        </div>
-      )}
+      {error && <p className="spdf-error">{error}</p>}
+
+      <div className="spdf-actions">
+        <button className="spdf-btn-cancel" onClick={resetear}>Limpiar</button>
+        <button className="spdf-btn-submit" onClick={handleSubmit} disabled={!archivo}>
+          Procesar libro
+        </button>
+      </div>
     </div>
   )
 }

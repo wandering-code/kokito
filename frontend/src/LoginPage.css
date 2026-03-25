@@ -1,0 +1,239 @@
+.lp-root {
+  min-height: 100vh;
+  background: var(--cr-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Franja superior ── */
+.lp-band {
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-warm);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.lp-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.lp-brand-name {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--cr-dark);
+  letter-spacing: 0.06em;
+}
+
+.lp-brand-tag {
+  font-size: 13px;
+  color: var(--cr-muted);
+}
+
+.lp-band-dots {
+  display: flex;
+  gap: 5px;
+  opacity: 0.4;
+}
+
+.lp-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cr-tan);
+}
+.lp-dot.g { background: var(--cr-green-lt); }
+.lp-dot.b { background: var(--cr-brown); }
+
+/* ── Cuerpo ── */
+.lp-body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── Panel izquierdo ── */
+.lp-left {
+  width: 320px;
+  min-width: 220px;
+  flex-shrink: 0;
+  background: var(--cr-surface);
+  border-right: 1px solid var(--cr-warm);
+  padding: 52px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 32px;
+}
+
+.lp-panel-heading {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--cr-dark);
+  line-height: 1.35;
+  margin-bottom: 12px;
+}
+
+.lp-panel-body {
+  font-size: 13px;
+  color: var(--cr-muted);
+  line-height: 1.75;
+}
+
+.lp-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lp-feat {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.lp-feat-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--cr-warm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lp-feat-text {
+  font-size: 13px;
+  color: var(--cr-dark);
+  line-height: 1.5;
+  padding-top: 6px;
+}
+
+.lp-feat-text small {
+  display: block;
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+/* ── Formulario ── */
+.lp-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 52px 44px;
+  background: var(--cr-bg);
+}
+
+.lp-form > * {
+  width: 100%;
+  max-width: 380px;
+}
+
+.lp-form-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--cr-dark);
+  margin-bottom: 4px;
+}
+
+.lp-form-sub {
+  font-size: 13px;
+  color: var(--cr-muted);
+  margin-bottom: 32px;
+}
+
+.lp-field {
+  margin-bottom: 18px;
+}
+
+.lp-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cr-brown);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.lp-field input {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--cr-border);
+  border-radius: 9px;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--cr-dark);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.18s, box-shadow 0.18s;
+  -webkit-appearance: none;
+}
+
+.lp-field input:focus {
+  border-color: var(--cr-border-focus);
+  box-shadow: 0 0 0 3px rgba(107, 158, 110, 0.14);
+}
+
+.lp-field input::placeholder {
+  color: rgba(156, 132, 112, 0.5);
+}
+
+.lp-error {
+  font-size: 13px;
+  color: #a33;
+  margin-bottom: 8px;
+}
+
+.lp-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: var(--cr-brown);
+  color: var(--cr-bg);
+  border: none;
+  border-radius: 9px;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.18s, transform 0.1s;
+}
+
+.lp-btn:hover    { background: var(--cr-dark); }
+.lp-btn:active   { transform: scale(0.99); }
+.lp-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.lp-footer {
+  margin-top: 22px;
+  font-size: 12px;
+  color: var(--cr-muted);
+  text-align: center;
+}
+
+.lp-footer a {
+  color: var(--cr-green);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.lp-footer a:hover { text-decoration: underline; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .lp-left        { display: none; }
+  .lp-band        { padding: 14px 20px; }
+  .lp-brand-tag   { display: none; }
+  .lp-band-dots   { display: none; }
+  .lp-form        { padding: 32px 24px; max-width: none; }
+}

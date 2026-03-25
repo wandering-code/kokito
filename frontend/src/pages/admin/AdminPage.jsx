@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useState } from "react"
 import SubirPDF from "./SubirPDF"
 import ListaLibros from "./ListaLibros"
+import "./AdminPage.css"
 
 export default function AdminPage() {
   const { usuario, logout } = useAuth()
@@ -10,31 +11,34 @@ export default function AdminPage() {
   const [refreshLibros, setRefreshLibros] = useState(0)
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-4xl mx-auto flex flex-col gap-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Panel de administración</h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/biblioteca", { state: { modoAdmin: true }, replace: true })}
-              style={{backgroundColor: "#2d5a8e"}}
-              className="text-white text-sm px-4 py-2 rounded-lg hover:opacity-80 transition font-medium"
-            >
-              Ver como usuario
-            </button>
-            <span className="text-gray-400 text-sm">Hola, {usuario.nombre}</span>
-            <button
-              onClick={logout}
-              className="text-white text-sm px-4 py-2 rounded-lg transition font-medium"
-              style={{backgroundColor: "#374151"}}
-            >
-              Cerrar sesión
-            </button>
-          </div>
+    <div className="adm-root">
+      <div className="adm-topbar">
+        <div className="adm-brand">
+          <span className="adm-brand-name">kokito</span>
+          <span className="adm-badge">administración</span>
+        </div>
+        <div className="adm-actions">
+          <button
+            className="adm-btn"
+            onClick={() => navigate("/biblioteca", { state: { modoAdmin: true }, replace: true })}
+          >
+            Ver como usuario
+          </button>
+          <span className="adm-user-name">Hola, {usuario.nombre}</span>
+          <button className="adm-btn salir" onClick={logout}>Cerrar sesión</button>
+        </div>
+      </div>
+
+      <div className="adm-content">
+        <div className="adm-card">
+          <div className="adm-section-title">Nuevo libro</div>
+          <SubirPDF onLibroSubido={() => setRefreshLibros(r => r + 1)} />
         </div>
 
-        <SubirPDF onLibroSubido={() => setRefreshLibros(r => r + 1)} />
-        <ListaLibros refresh={refreshLibros} />
+        <div className="adm-card">
+          <div className="adm-section-title">Libros en el sistema</div>
+          <ListaLibros refresh={refreshLibros} />
+        </div>
       </div>
     </div>
   )

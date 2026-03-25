@@ -2,182 +2,357 @@ import { useState, useEffect, useRef } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../../AuthContext"
 import API from "../../config"
+import "./LibroPage.css"
 
 export default function LibroPage() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const location = useLocation()
+  const { id }       = useParams()
+  const navigate     = useNavigate()
+  const location     = useLocation()
   const { usuario, logout } = useAuth()
-  const [libro, setLibro] = useState(null)
-  const [parteActiva, setParteActiva] = useState(null)
+  const modoAdmin    = location.state?.modoAdmin || false
+
+  const [libro, setLibro]                   = useState(null)
+  const [parteActiva, setParteActiva]       = useState(null)
   const [segundoInicial, setSegundoInicial] = useState(0)
+  const [reproduciendo, setReproduciendo]   = useState(false)
+  const [tiempoActual, setTiempoActual]     = useState(0)
+  const [duracion, setDuracion]             = useState(0)
   const audioRef = useRef(null)
-  const modoAdmin = location.state?.modoAdmin || false
+  const [progresoPorParte, setProgresoPorParte] = useState({})
 
   useEffect(() => {
-    // Cargar libro y progreso en paralelo
-    Promise.all([
-      fetch(`${API}/libros/${id}`, { credentials: "include" }).then(r => r.json()),
-      fetch(`${API}/progreso/${id}`, { credentials: "include" }).then(r => r.json())
-    ]).then(([libroData, progresoData]) => {
-      setLibro(libroData)
+    const fetchLibro = fetch(`${API}/libros/${id}`, { credentials: "include" })
+      .then(r => r.json())
 
-      if (progresoData.tiene_progreso) {
-        // Retomar desde donde lo dejó
-        const parteGuardada = libroData.partes.find(p => p.id === progresoData.parte_id)
-        if (parteGuardada && parteGuardada.estado === "listo") {
-          setParteActiva(parteGuardada)
-          setSegundoInicial(progresoData.segundo_actual)
+    const fetchProgreso = fetch(`${API}/progreso/libro/${id}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : { tiene_progreso: false, progreso_por_parte: {} })
+      .catch(() => ({ tiene_progreso: false, progreso_por_parte: {} }))
+
+    Promise.all([fetchLibro, fetchProgreso])
+      .then(([libroData, progresoData]) => {
+        if (!libroData || !libroData.partes) {
+          console.error("Respuesta inesperada del libro:", libroData)
           return
         }
-      }
+        setLibro(libroData)
+        setProgresoPorParte(progresoData.progreso_por_parte || {})
 
-      // Si no hay progreso, seleccionar la primera parte lista
-      const primeraLista = libroData.partes.find(p => p.estado === "listo")
-      if (primeraLista) setParteActiva(primeraLista)
-    })
+        if (progresoData.tiene_progreso && progresoData.ultima_parte_id) {
+          const parteGuardada = libroData.partes.find(
+            p => p.id === progresoData.ultima_parte_id
+          )
+          if (parteGuardada?.estado === "listo") {
+            setParteActiva(parteGuardada)
+            setSegundoInicial(progresoData.ultimo_segundo)
+            return
+          }
+        }
+        const primeraLista = libroData.partes.find(p => p.estado === "listo")
+        if (primeraLista) setParteActiva(primeraLista)
+      })
+      .catch(err => console.error("Error al cargar libro:", err))
   }, [id])
 
-  // Cuando carga el audio, posicionarlo en el segundo correcto
+  // Posicionar el audio solo cuando hay un segundo guardado (progreso retomado)
   useEffect(() => {
-    if (audioRef.current && segundoInicial > 0) {
+    if (!audioRef.current || segundoInicial <= 0) return
+    const handler = () => {
       audioRef.current.currentTime = segundoInicial
-      setSegundoInicial(0) // Reset para que no se aplique al cambiar de parte
+      setSegundoInicial(0)
     }
-  }, [parteActiva, segundoInicial])
+    if (audioRef.current.readyState >= 1) {
+      handler()
+    } else {
+      audioRef.current.addEventListener("loadedmetadata", handler, { once: true })
+    }
+  }, [parteActiva])
 
-  // Guardar progreso cada 5 segundos
+  // Guardar progreso cada 5 segundos mientras reproduce
   useEffect(() => {
     if (!parteActiva) return
-
     const intervalo = setInterval(() => {
       if (!audioRef.current || audioRef.current.paused) return
-
-      const formData = new FormData()
-      formData.append("libro_id", id)
-      formData.append("parte_id", parteActiva.id)
-      formData.append("segundo_actual", Math.floor(audioRef.current.currentTime))
-
-      fetch(`${API}/progreso`, {
-        method: "POST",
-        body: formData,
-        credentials: "include"
-      })
+      guardarProgreso(parteActiva.id, audioRef.current.currentTime)
     }, 5000)
-
     return () => clearInterval(intervalo)
   }, [parteActiva, id])
 
+  function guardarProgreso(parteId, segundo) {
+    const fd = new FormData()
+    fd.append("parte_id", parteId)
+    fd.append("segundo_actual", Math.floor(segundo))
+    fetch(`${API}/progreso/parte`, { method: "POST", body: fd, credentials: "include" })
+  }
+
+  function marcarParteEscuchada(parteId) {
+    fetch(`${API}/partes/${parteId}/escuchada`, {
+      method: "POST",
+      credentials: "include"
+    })
+  }
+
   function seleccionarParte(parte) {
     if (parte.estado !== "listo") return
-    setSegundoInicial(0)
+    if (parteActiva && audioRef.current) {
+      guardarProgreso(parteActiva.id, audioRef.current.currentTime)
+    }
+    const segundoGuardado = progresoPorParte[parte.id] || 0
+    setSegundoInicial(segundoGuardado)
+    setReproduciendo(false)
+    setTiempoActual(0)
+    setDuracion(0)
     setParteActiva(parte)
   }
 
+  function togglePlay() {
+    if (!audioRef.current) return
+    audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
+  }
+
+  function saltar(segundos) {
+    if (!audioRef.current) return
+    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime + segundos)
+  }
+
+  function porcentajeLibro() {
+    if (!libro || libro.partes.length === 0) return 0
+    const escuchadas = libro.partes.filter(p => p.escuchada).length
+    return Math.round((escuchadas / libro.partes.length) * 100)
+  }
+
+  function parteActivaIndex() {
+    if (!libro || !parteActiva) return 0
+    return libro.partes.findIndex(p => p.id === parteActiva.id) + 1
+  }
+
+  function formatTiempo(s) {
+    const m  = Math.floor(s / 60)
+    const ss = Math.floor(s % 60)
+    return `${m}:${ss.toString().padStart(2, "0")}`
+  }
+
   if (!libro) return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    <div className="libro-loading">
+      <div className="libro-spinner" />
     </div>
   )
 
+  const pct = duracion > 0 ? (tiempoActual / duracion) * 100 : 0
+
   return (
-    <div className={`min-h-screen bg-gray-950 text-white p-8 ${modoAdmin ? "pt-16" : ""}`}>
+    <div className="libro-root">
 
       {modoAdmin && (
-        <div style={{backgroundColor: "#1e3a5f"}} className="fixed top-0 left-0 right-0 px-6 py-2 flex justify-between items-center z-50">
-          <span className="text-white text-xs font-medium">👁 Viendo como usuario</span>
-          <button
-            onClick={() => navigate("/admin", { replace: true })}
-            style={{backgroundColor: "#2d5a8e"}}
-            className="text-white text-xs px-3 py-1 rounded-lg hover:opacity-80 transition"
-          >
+        <div className="libro-admin-bar">
+          <span>Viendo como usuario</span>
+          <button className="libro-admin-back" onClick={() => navigate("/admin", { replace: true })}>
             ← Volver al panel de admin
           </button>
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto flex flex-col gap-6">
-
-        <div className="flex justify-between items-center">
-          <button
-            onClick={() => navigate("/biblioteca", { state: { modoAdmin } })}
-            className="text-gray-500 hover:text-gray-300 text-sm transition"
-          >
-            ← Volver a la biblioteca
-          </button>
-          <div className="flex items-center gap-3">
-            <span className="text-gray-400 text-sm">Hola, {usuario.nombre}</span>
-            {!modoAdmin && (
-              <button
-                onClick={logout}
-                className="text-white text-sm px-4 py-2 rounded-lg transition font-medium"
-                style={{backgroundColor: "#374151"}}
-              >
-                Cerrar sesión
-              </button>
-            )}
-          </div>
+      <div className="libro-topbar">
+        <button className="libro-back" onClick={() => navigate("/biblioteca", { state: { modoAdmin } })}>
+          ← Biblioteca
+        </button>
+        <span className="libro-brand">kokito</span>
+        <div className="libro-user">
+          <span className="libro-user-name">Hola, {usuario.nombre}</span>
+          {!modoAdmin && (
+            <button className="libro-btn-out" onClick={logout}>Cerrar sesión</button>
+          )}
         </div>
+      </div>
 
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold">{libro.titulo}</h1>
-          {libro.autor && <p className="text-gray-400">{libro.autor}</p>}
-          <p className="text-gray-600 text-sm">{libro.num_paginas} páginas · {libro.partes.length} partes</p>
-        </div>
+      <div className="libro-content">
 
-        {parteActiva && (
-          <div className="bg-gray-900 rounded-2xl p-6 flex flex-col gap-3">
-            <p className="text-sm text-gray-400">Reproduciendo parte {parteActiva.numero_parte}</p>
-            <audio
-              ref={audioRef}
-              controls
-              src={`${API}/partes/${parteActiva.id}/audio`}
-              className="w-full"
-              onLoadedMetadata={() => {
-                if (segundoInicial > 0 && audioRef.current) {
-                  audioRef.current.currentTime = segundoInicial
-                }
-              }}
-            />
+        <div className="libro-left">
+          <div className="libro-cover">
+            {libro.portada_url
+              ? <img src={libro.portada_url} alt={libro.titulo} />
+              : <CoverPlaceholder />
+            }
           </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Partes</h2>
-          {libro.partes.map(parte => (
-            <div
-              key={parte.id}
-              onClick={() => seleccionarParte(parte)}
-              className={`rounded-xl px-4 py-3 flex justify-between items-center transition ${
-                parte.estado === "listo"
-                  ? parteActiva?.id === parte.id
-                    ? "bg-blue-600 cursor-pointer"
-                    : "bg-gray-900 hover:bg-gray-800 cursor-pointer"
-                  : "bg-gray-900 opacity-50 cursor-not-allowed"
-              }`}
-            >
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Parte {parte.numero_parte}</span>
-                <span className="text-xs text-gray-500">
-                  Páginas {parte.pagina_inicio + 1} – {parte.pagina_fin + 1}
-                </span>
-              </div>
-              <span className={`text-xs font-medium ${
-                parte.estado === "listo" ? "text-green-400" :
-                parte.estado === "procesando" ? "text-yellow-400" :
-                parte.estado === "error" ? "text-red-400" :
-                "text-gray-500"
-              }`}>
-                {parte.estado === "listo" ? "▶ Listo" :
-                 parte.estado === "procesando" ? "⏳ Procesando" :
-                 parte.estado === "error" ? "✕ Error" :
-                 "⏸ Pendiente"}
-              </span>
+          <div className="libro-meta">
+            <div className="libro-titulo">{libro.titulo}</div>
+            {libro.autor && <div className="libro-autor">{libro.autor}</div>}
+            <div className="libro-stats">{libro.num_paginas} páginas · {libro.partes.length} partes</div>
+          </div>
+          <div className="libro-prog">
+            <div className="libro-prog-label">Tu progreso</div>
+            <div className="libro-prog-bar-wrap">
+              <div className="libro-prog-bar" style={{ width: `${porcentajeLibro()}%` }} />
             </div>
-          ))}
+            <div className="libro-prog-text">
+              {porcentajeLibro() === 0
+                ? "Sin empezar"
+                : porcentajeLibro() === 100
+                  ? "Completado"
+                  : `Parte ${parteActivaIndex()} de ${libro.partes.length}`
+              }
+            </div>
+          </div>
         </div>
 
+        <div className="libro-right">
+
+          {parteActiva ? (
+            <div className="player-card">
+              <div>
+                <div className="player-label">Reproduciendo ahora</div>
+                <div className="player-title">
+                  Parte {parteActiva.numero_parte} · Páginas {parteActiva.pagina_inicio + 1}–{parteActiva.pagina_fin + 1}
+                </div>
+              </div>
+
+              <audio
+                ref={audioRef}
+                src={`${API}/partes/${parteActiva.id}/audio`}
+                onLoadedMetadata={() => {
+                  setDuracion(audioRef.current.duration)
+                  if (segundoInicial > 0) {
+                    audioRef.current.currentTime = segundoInicial
+                    setSegundoInicial(0)
+                  }
+                }}
+                onTimeUpdate={() => setTiempoActual(audioRef.current.currentTime)}
+                onPlay={() => setReproduciendo(true)}
+                onPause={() => {
+                  setReproduciendo(false)
+                  if (audioRef.current) guardarProgreso(parteActiva.id, audioRef.current.currentTime)
+                }}
+                onEnded={() => {
+                  setReproduciendo(false)
+                  marcarParteEscuchada(parteActiva.id)
+                  guardarProgreso(parteActiva.id, audioRef.current?.duration || 0)
+                }}
+              />
+
+              <div className="player-scrubber">
+                <span className="player-time">{formatTiempo(tiempoActual)}</span>
+                <div
+                  className="scrubber-track"
+                  onClick={e => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const ratio = (e.clientX - rect.left) / rect.width
+                    if (audioRef.current) audioRef.current.currentTime = ratio * duracion
+                  }}
+                >
+                  <div className="scrubber-fill" style={{ width: `${pct}%` }} />
+                  <div className="scrubber-thumb" style={{ left: `${pct}%` }} />
+                </div>
+                <span className="player-time">{formatTiempo(duracion)}</span>
+              </div>
+
+              <div className="player-btns">
+                <button className="pbtn" onClick={() => saltar(-15)} title="Retroceder 15s">
+                  <IconSkipBack />
+                </button>
+                <button className="pbtn-play" onClick={togglePlay}>
+                  {reproduciendo ? <IconPause /> : <IconPlay />}
+                </button>
+                <button className="pbtn" onClick={() => saltar(15)} title="Avanzar 15s">
+                  <IconSkipFwd />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="player-card" style={{ alignItems: "center", padding: "32px", color: "var(--cr-muted)", fontSize: "14px" }}>
+              No hay partes listas todavía
+            </div>
+          )}
+
+          <div>
+            <div className="partes-header" style={{ marginBottom: "12px" }}>Partes</div>
+            <div className="partes-list">
+              {libro.partes.map(parte => {
+                const activa = parteActiva?.id === parte.id
+                const bloq   = parte.estado !== "listo"
+                return (
+                  <div
+                    key={parte.id}
+                    className={`parte-row ${activa ? "parte-active" : ""} ${bloq ? "parte-locked" : ""}`}
+                    onClick={() => seleccionarParte(parte)}
+                  >
+                    <div className="parte-num">{parte.numero_parte}</div>
+                    <div className="parte-info">
+                      <div className="parte-nombre">Parte {parte.numero_parte}</div>
+                      <div className="parte-pages">
+                        Páginas {parte.pagina_inicio + 1}–{parte.pagina_fin + 1}
+                      </div>
+                    </div>
+                    <span className={`parte-badge ${
+                      activa                        ? "badge-active"     :
+                      parte.escuchada               ? "badge-escuchada"  :
+                      parte.estado === "listo"      ? "badge-listo"      :
+                      parte.estado === "procesando" ? "badge-procesando" :
+                      parte.estado === "error"      ? "badge-error"      :
+                      "badge-pendiente"
+                    }`}>
+                      {activa                        ? "▶ Reproduciendo" :
+                       parte.escuchada               ? "Escuchada"       :
+                       parte.estado === "listo"      ? "Listo"           :
+                       parte.estado === "procesando" ? "Procesando"      :
+                       parte.estado === "error"      ? "Error"           :
+                       "Pendiente"}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
+  )
+}
+
+function CoverPlaceholder() {
+  return (
+    <svg width="60" height="80" viewBox="0 0 28 36" fill="none">
+      <rect x="2" y="2" width="24" height="32" rx="3"
+        fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+      <line x1="7" y1="11" x2="21" y2="11" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+      <line x1="7" y1="16" x2="21" y2="16" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+      <line x1="7" y1="21" x2="16" y2="21" stroke="rgba(139,107,74,0.3)" strokeWidth="1.5"/>
+    </svg>
+  )
+}
+
+function IconPlay() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5,3 19,12 5,21"/>
+    </svg>
+  )
+}
+
+function IconPause() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="4" width="4" height="16" rx="1"/>
+      <rect x="14" y="4" width="4" height="16" rx="1"/>
+    </svg>
+  )
+}
+
+function IconSkipBack() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="1 4 1 10 7 10"/>
+      <path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+      <text x="7.5" y="15.5" style={{fontSize:"6px", fill:"currentColor", stroke:"none", fontFamily:"sans-serif", fontWeight:"600"}}>15</text>
+    </svg>
+  )
+}
+
+function IconSkipFwd() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10"/>
+      <path d="M20.49 15a9 9 0 1 1-.49-4.5"/>
+      <text x="7.5" y="15.5" style={{fontSize:"6px", fill:"currentColor", stroke:"none", fontFamily:"sans-serif", fontWeight:"600"}}>15</text>
+    </svg>
   )
 }

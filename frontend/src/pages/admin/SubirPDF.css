@@ -1,0 +1,136 @@
+.spdf-grid { display: flex; flex-direction: column; gap: 16px; }
+
+.spdf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.spdf-full { grid-column: 1 / -1; }
+
+.spdf-field label {
+  display: block; font-size: 11px; font-weight: 500;
+  color: var(--cr-brown); letter-spacing: 0.07em;
+  text-transform: uppercase; margin-bottom: 5px;
+}
+
+.spdf-field input {
+  width: 100%; background: #fff;
+  border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
+  font-family: inherit; outline: none;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.spdf-field input:focus {
+  border-color: var(--cr-border-focus, #6B9E6E);
+  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
+}
+
+.spdf-tts { display: flex; border: 1px solid var(--cr-warm); border-radius: 8px; overflow: hidden; }
+.spdf-tts-btn {
+  flex: 1; padding: 9px; font-size: 13px; font-weight: 500;
+  border: none; background: transparent; color: var(--cr-muted);
+  cursor: pointer; font-family: inherit; transition: background 0.15s, color 0.15s;
+}
+.spdf-tts-btn:first-child { border-right: 1px solid var(--cr-warm); }
+.spdf-tts-btn.active { background: var(--cr-brown); color: var(--cr-bg); }
+
+.spdf-coqui {
+  background: var(--cr-surface); border-radius: 10px;
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+
+.spdf-coqui-title {
+  font-size: 11px; font-weight: 500; color: var(--cr-brown);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+.spdf-voces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+.spdf-voz {
+  border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 10px 12px; cursor: pointer;
+  background: #fff; transition: border-color 0.15s;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.spdf-voz:hover { border-color: var(--cr-tan); }
+.spdf-voz.selected { border-color: var(--cr-brown); background: rgba(139,107,74,0.05); }
+
+.spdf-voz-name  { font-size: 13px; font-weight: 500; color: var(--cr-dark); }
+.spdf-voz-desc  { font-size: 11px; color: var(--cr-muted); }
+
+.spdf-voz-play {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--cr-warm); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s; flex-shrink: 0;
+}
+.spdf-voz-play:hover { background: var(--cr-tan); }
+
+.spdf-voz-custom {
+  border: 1px dashed var(--cr-tan); border-radius: 8px;
+  padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+  cursor: pointer; font-size: 13px; color: var(--cr-muted);
+  background: transparent; width: 100%; font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+}
+.spdf-voz-custom:hover { border-color: var(--cr-brown); color: var(--cr-brown); }
+.spdf-voz-nombre { font-size: 12px; color: var(--cr-green); margin-top: 2px; }
+
+.spdf-drop {
+  border: 1.5px dashed var(--cr-tan); border-radius: 10px;
+  padding: 22px; display: flex; flex-direction: column;
+  align-items: center; gap: 8px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: transparent;
+}
+.spdf-drop:hover { border-color: var(--cr-brown); background: var(--cr-surface); }
+.spdf-drop.con-archivo { border-color: var(--cr-green); background: rgba(74,110,76,0.04); }
+
+.spdf-drop-label  { font-size: 13px; color: var(--cr-muted); }
+.spdf-drop-nombre { font-size: 13px; color: var(--cr-green); font-weight: 500; }
+
+.spdf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+
+.spdf-btn-cancel {
+  font-size: 13px; border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 9px 18px; background: transparent; color: var(--cr-muted);
+  cursor: pointer; font-family: inherit; transition: background 0.15s;
+}
+.spdf-btn-cancel:hover { background: var(--cr-warm); }
+
+.spdf-btn-submit {
+  font-size: 13px; border: none; border-radius: 8px;
+  padding: 9px 22px; background: var(--cr-brown); color: var(--cr-bg);
+  cursor: pointer; font-family: inherit; font-weight: 500;
+  transition: background 0.15s;
+}
+.spdf-btn-submit:hover    { background: var(--cr-dark); }
+.spdf-btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spdf-progreso {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 0;
+}
+.spdf-spinner {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid var(--cr-warm); border-top-color: var(--cr-brown);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spdf-prog-label { font-size: 13px; color: var(--cr-muted); }
+.spdf-prog-bar-wrap { width: 100%; background: var(--cr-warm); border-radius: 4px; height: 5px; }
+.spdf-prog-bar { height: 5px; border-radius: 4px; background: var(--cr-brown); transition: width 0.3s; }
+
+.spdf-listo {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 0;
+}
+.spdf-listo-icon {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(74,110,76,0.12);
+  display: flex; align-items: center; justify-content: center;
+}
+.spdf-listo-msg { font-size: 13px; color: var(--cr-dark); text-align: center; }
+.spdf-listo-sub { font-size: 12px; color: var(--cr-muted); text-align: center; }
+.spdf-btn-otro {
+  font-size: 12px; color: var(--cr-muted); background: none; border: none;
+  cursor: pointer; font-family: inherit; text-decoration: underline;
+  transition: color 0.15s;
+}
+.spdf-btn-otro:hover { color: var(--cr-brown); }
+
+.spdf-error { font-size: 13px; color: #a33; text-align: center; }

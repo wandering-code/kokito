@@ -2456,3 +2456,194 @@ Endpoints:
 - Marcar partes como escuchadas (`estado_parte_usuario`)
 - Lista de deseos
 - Notificaciones por email: al admin cuando llega una solicitud, a los usuarios cuando se publica un libro que han solicitado (Gmail + smtplib, credenciales en `.env`)
+
+---
+
+## Sesión 16 — Rediseño visual completo
+
+### Decisiones de diseño tomadas
+
+**Paleta — inspirada en Coco (la gata)**
+Variables definidas en `frontend/src/theme.css`:
+- `--cr-bg`           #FAF6F0 — fondo principal crema
+- `--cr-surface`      #F2EBE0 — superficies secundarias
+- `--cr-warm`         #E8D9C4 — bordes y separadores
+- `--cr-tan`          #C4A882 — tostado medio
+- `--cr-brown`        #8B6B4A — acento principal (botones)
+- `--cr-dark`         #3D2B1A — texto principal
+- `--cr-muted`        #9C8470 — texto secundario
+- `--cr-green`        #4A6E4C — enlaces y foco (ojos de Coco)
+- `--cr-green-lt`     #6B9E6E — verde claro
+- `--cr-border`       rgba(139,107,74,0.18)
+- `--cr-border-focus` #6B9E6E
+
+**Estética general**
+- Fondo crema claro, texto oscuro — modo claro únicamente por ahora
+- Sin Coco como ilustración por ahora (posible logo/icono en el futuro)
+- Tipografía limpia, pesos 400 y 500 únicamente
+- Cada página tiene su propio `.css` con clases prefijadas (lp-, bib-, libro-, adm-)
+- Responsive desde el principio: móvil y escritorio
+
+**Sistema de estilos**
+- `theme.css` — variables globales, importado en `main.jsx`
+- Tailwind sigue activo para el resto de componentes no rediseñados
+
+---
+
+### Archivos creados o modificados
+
+**Frontend:**
+- `frontend/src/theme.css` — nuevo, paleta global
+- `frontend/src/LoginPage.jsx` + `LoginPage.css` — reescritos
+- `frontend/src/pages/BibliotecaPage.jsx` + `BibliotecaPage.css` — reescritos
+- `frontend/src/pages/LibroPage.jsx` + `LibroPage.css` — reescritos
+- `frontend/src/pages/admin/AdminPage.jsx` + `AdminPage.css` — reescritos
+- `frontend/src/pages/admin/SubirPDF.jsx` + `SubirPDF.css` — reescritos
+- `frontend/src/pages/admin/ListaLibros.jsx` + `ListaLibros.css` — reescritos
+
+**Backend:**
+- `backend/main.py` — múltiples endpoints actualizados y añadidos
+- `backend/database.py` — modelos `ProgresoParte` añadido
+- `backend/migrations/env.py` — corregido para usar `DATABASE_URL` del entorno
+- `backend/auth.py` — añadida función `obtener_usuario_opcional`
+
+**Migraciones Alembic aplicadas:**
+- `portada_url en libros`
+- `progreso por parte`
+
+---
+
+### Login (completo)
+- Franja superior fija con nombre "kokito" y tagline
+- Panel izquierdo (solo escritorio): claim poético + 3 features
+- Formulario centrado en el panel derecho
+- En móvil: panel izquierdo desaparece, solo formulario
+- Claim: "Escucha lo que quieras leer."
+- Subtítulo: biblioteca curada, pedir título, escuchar cuando esté listo
+- Features: pedir libro / escuchar por capítulos / progreso guardado
+
+---
+
+### Biblioteca de usuarios (completa)
+- Franja superior con nombre de app y saludo al usuario
+- Vista cuadrícula y lista — el usuario elige, preferencia guardada en `localStorage`
+- Portadas con fallback a placeholder elegante
+- Badges de estado por libro: Nuevo / En progreso / Completado
+- Barra de progreso en vista lista para libros en progreso
+- Espacio reservado para filtros y búsqueda futuros
+- Columna `portada_url` añadida a la tabla `libros`
+
+**Nota de producto:** la biblioteca actual es la general (todos los libros disponibles).
+En el futuro existirá una "Mi biblioteca" personal por usuario con listas propias
+(pendientes, escuchados, por mes, etc.). Se diseñará cuando se implemente esa funcionalidad.
+
+---
+
+### Detalle del libro y reproductor (completo)
+- Columna izquierda fija: portada, título, autor, stats, barra de progreso del libro
+- En móvil: columna izquierda se convierte en franja horizontal arriba
+- Reproductor completamente custom (sin controles nativos del navegador):
+  - Scrubber clickeable con thumb
+  - Botones ±15 segundos
+  - Botón play/pausa
+- Lista de partes con estados visuales:
+  Reproduciendo / Escuchada / Listo / Procesando / Pendiente / Error
+- Progreso guardado automáticamente cada 5s, al pausar, al cambiar de parte y al terminar
+- Partes marcadas como escuchadas en BBDD (`estado_parte_usuario`) al terminar reproducción
+- Barra de progreso del libro calculada sobre partes escuchadas (no sobre partes listas)
+
+---
+
+### Progreso por parte (nuevo modelo)
+**Motivación:** guardar un único punto de progreso por libro hacía que al volver
+a una parte anterior se perdiera la posición en la parte posterior.
+
+**Solución:** tabla `progreso_parte` — un registro por `(usuario, parte)`.
+
+- Cada parte tiene su propio segundo guardado independientemente
+- Al seleccionar una parte se restaura automáticamente el segundo donde se dejó
+- Al cambiar de parte se guarda el segundo actual antes de cambiar
+- Endpoints nuevos:
+  - `POST /progreso/parte` — guarda segundo de una parte concreta
+  - `GET /progreso/libro/{libro_id}` — devuelve progreso de todas las partes + última parte activa
+- Los endpoints antiguos `POST /progreso` y `GET /progreso/{libro_id}` se mantienen
+  por compatibilidad pero ya no se usan en `LibroPage`
+
+---
+
+### Panel de administración (completo)
+- Franja superior con badge "administración" y botón "Ver como usuario"
+- Dos secciones: formulario de nuevo libro + lista de libros del sistema
+- Misma paleta y estética que el resto de la app
+
+**Formulario de nuevo libro:**
+- Campos: título, autor, páginas por parte
+- Selector de motor TTS: Edge TTS y Coqui (IA local) — Google TTS eliminado
+- Al seleccionar Coqui aparece sección con:
+  - Tres voces predefinidas en tarjetas (nombre + descripción + botón escuchar)
+  - Opción de subir archivo de voz personalizado (MP3/WAV)
+  - Si hay archivo subido, tiene prioridad sobre la voz predefinida
+- Zona de drop para el PDF con estado visual (borde verde si hay archivo)
+- Estados de procesamiento: spinner con barra de progreso → confirmación de éxito
+
+**Lista de libros:**
+- Portada pequeña (o placeholder), título, autor, páginas
+- Puntitos de colores por parte: verde (listo) / ámbar (procesando) / crema (pendiente)
+- Badge: Publicado / Sin publicar
+- Botón publicar/despublicar
+- Botón borrar con confirmación
+
+---
+
+### Fixes y correcciones aplicados esta sesión
+- Orden de rutas en FastAPI: `/libros/publicos` antes de `/libros/{libro_id}`
+- `/progreso/libro/{libro_id}` antes de `/progreso/{libro_id}`
+- `guardarProgreso` y `marcarParteEscuchada` movidas dentro del componente React
+- `obtener_usuario_opcional` en `auth.py` — permite endpoints sin auth obligatoria
+- `Request` importado en `main.py`
+- `ProgresoParte` importado en `main.py`
+- Alembic corregido para usar `DATABASE_URL` del contenedor (no `localhost`)
+- Cookie de sesión: usar siempre `localhost:8000` en desarrollo desde el Mac
+- Reset de `tiempoActual` y `duracion` al cambiar de parte (evitaba posición errónea)
+- `porcentajeLibro()` cuenta partes `escuchada` en lugar de partes `listo`
+
+---
+
+### Notas de desarrollo
+- En `frontend/.env.local` usar `localhost:8000` para desarrollo en Mac.
+  Cambiar a IP local (`192.168.1.94:8000`) solo para probar desde iPhone.
+- Las voces predefinidas de Coqui son archivos en `C:\kokito-tts\` del sobremesa.
+  El botón de escuchar preview llama a `GET /voces/{id}` — pendiente de implementar
+  en el servidor del sobremesa (puerto 8001).
+
+---
+
+### Pendiente para próximas sesiones
+
+**Voces predefinidas de Coqui (backend sobremesa):**
+- Añadir endpoint `GET /voces` al servidor del sobremesa → lista de voces disponibles
+- Añadir endpoint `GET /voces/{nombre}` → sirve el archivo MP3 de referencia para preview
+- En Kokito: nuevo endpoint `GET /voces` que proxea al sobremesa
+
+**Metadatos de libros:**
+- Añadir columnas a `libros`: `sinopsis`, `genero`, `serie`, `editorial`, `isbn`
+- Generar migración Alembic (aunque no se use en UI todavía)
+- En el futuro: integración con Google Books API para autocompletar al subir un libro
+  (aplica también al formulario de solicitudes de usuarios)
+
+**Puntitos de estado en ListaLibros:**
+- Ahora todos los puntitos aparecen en verde porque el endpoint `/libros`
+  solo devuelve el conteo de partes, no su estado individual
+- Para mostrar estados reales: hacer que el endpoint devuelva
+  la lista de partes con su estado, o añadir un campo `partes_por_estado`
+
+**Próxima pantalla a rediseñar:**
+- No quedan pantallas de usuario pendientes de rediseño
+- Siguiente funcionalidad nueva: sistema de solicitudes de libros para usuarios
+
+**Otras cosas a tener en cuenta:**
+- Revisar cómo se están almacenando los archivos físicos en el contenedor, por ver si se puede optimizar. 
+- Revisar si se están borrando los archivos cuando se elimina el libro.
+- Revisar por qué no se puede eliminar actualmente un libro desde la vista de administración
+- Hay que implementar alguna manera de opder cortar la prueba de audio que hay cuando se selecciona el local
+- En cuanto a sesiones, cómo funciona? Si yo pongo a convertir un libro que va a tardar horas, y al rato vuelvo a entrar con la cuenta de admin (que es con la que lo lancé), seguiré viendo el progreso? Debería verlo en todo momento, e incluso debería poder cortarlo
