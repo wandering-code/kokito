@@ -14,6 +14,7 @@ def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_i
 
     try:
         parte.estado = EstadoParte.procesando
+        parte.proveedor = proveedor
         db.commit()
 
         if proveedor == "edge":
@@ -48,9 +49,9 @@ def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_i
         ).order_by(Parte.numero_parte).first()
 
         if siguiente:
-            siguiente.estado = EstadoParte.procesando
+            nueva_tarea = convertir_pdf.delay(pdf_bytes, filename, proveedor, siguiente.id)
+            siguiente.tarea_id = nueva_tarea.id
             db.commit()
-            convertir_pdf.delay(pdf_bytes, filename, proveedor, siguiente.id)
 
         return ruta_mp3
 

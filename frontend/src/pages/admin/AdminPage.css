@@ -62,3 +62,26 @@
   .adm-content { padding: 20px 16px; }
   .adm-badge   { display: none; }
 }
+
+.adm-btn-cancelar {
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #c0392b;
+  color: #c0392b;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  align-self: flex-start;
+}
+
+.adm-btn-cancelar:hover:not(:disabled) {
+  background: #c0392b;
+  color: white;
+}
+
+.adm-btn-cancelar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

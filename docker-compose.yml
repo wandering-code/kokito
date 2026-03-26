@@ -7,6 +7,7 @@ services:
       - ./backend:/app
       - mp3_data:/tmp/kokito
       - ./backend/voces:/app/voces
+      - portadas_data:/app/portadas
     environment:
       - DATABASE_URL=postgresql://kokito:kokito@db:5432/kokito
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -54,3 +55,4 @@ services:
 volumes:
   postgres_data:
   mp3_data:
+  portadas_data:

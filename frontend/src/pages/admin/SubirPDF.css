@@ -134,3 +134,133 @@
 .spdf-btn-otro:hover { color: var(--cr-brown); }
 
 .spdf-error { font-size: 13px; color: #a33; text-align: center; }
+
+.spdf-textarea {
+  width: 100%; background: #fff;
+  border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
+  font-family: inherit; outline: none; resize: vertical;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.spdf-textarea:focus {
+  border-color: var(--cr-border-focus, #6B9E6E);
+  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
+}
+
+.spdf-select {
+  width: 100%; background: #fff;
+  border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
+  font-family: inherit; outline: none; cursor: pointer;
+  transition: border-color 0.18s, box-shadow 0.18s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238B6B4A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+.spdf-select:focus {
+  border-color: var(--cr-border-focus, #6B9E6E);
+  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
+}
+
+.spdf-busqueda {
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.spdf-busqueda-row {
+  display: flex; gap: 8px;
+}
+
+.spdf-busqueda-input {
+  flex: 1; background: #fff;
+  border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
+  font-family: inherit; outline: none;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.spdf-busqueda-input:focus {
+  border-color: var(--cr-border-focus, #6B9E6E);
+  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
+}
+
+.spdf-busqueda-btn {
+  font-size: 13px; border: none; border-radius: 8px;
+  padding: 9px 18px; background: var(--cr-brown); color: var(--cr-bg);
+  cursor: pointer; font-family: inherit; font-weight: 500;
+  transition: background 0.15s; white-space: nowrap;
+}
+.spdf-busqueda-btn:hover:not(:disabled) { background: var(--cr-dark); }
+.spdf-busqueda-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spdf-resultados {
+  border: 1px solid var(--cr-border); border-radius: 10px;
+  overflow: hidden; background: #fff;
+  max-height: 280px; overflow-y: auto;
+}
+
+.spdf-resultado {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px 14px; cursor: pointer;
+  border-bottom: 1px solid var(--cr-warm);
+  transition: background 0.15s;
+}
+.spdf-resultado:last-child { border-bottom: none; }
+.spdf-resultado:hover { background: var(--cr-surface); }
+
+.spdf-resultado-cover {
+  width: 32px; height: 44px; flex-shrink: 0;
+  border-radius: 3px; overflow: hidden;
+  background: var(--cr-warm);
+}
+.spdf-resultado-cover img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.spdf-resultado-nocover {
+  width: 100%; height: 100%; background: var(--cr-warm);
+}
+
+.spdf-resultado-titulo {
+  font-size: 13px; font-weight: 500; color: var(--cr-dark);
+}
+.spdf-resultado-meta {
+  font-size: 11px; color: var(--cr-muted); margin-top: 2px;
+}
+
+.spdf-portada {
+  display: flex; align-items: flex-start; gap: 14px;
+}
+
+.spdf-portada-preview {
+  width: 80px; height: 110px; object-fit: cover;
+  border-radius: 6px; border: 1px solid var(--cr-border);
+  flex-shrink: 0;
+}
+
+.spdf-portada-placeholder {
+  width: 80px; height: 110px; border-radius: 6px;
+  background: var(--cr-warm); border: 1px dashed var(--cr-tan);
+  flex-shrink: 0;
+}
+
+.spdf-portada-acciones {
+  display: flex; flex-direction: column; gap: 8px; justify-content: flex-end;
+  padding-bottom: 4px;
+}
+
+.spdf-portada-subir {
+  font-size: 12px; color: var(--cr-brown);
+  border: 1px solid var(--cr-border); border-radius: 7px;
+  padding: 6px 12px; cursor: pointer; font-family: inherit;
+  background: transparent; transition: background 0.15s;
+  white-space: nowrap;
+}
+.spdf-portada-subir:hover { background: var(--cr-warm); }
+
+.spdf-portada-quitar {
+  font-size: 12px; color: var(--cr-muted);
+  border: none; background: none; cursor: pointer;
+  font-family: inherit; padding: 0;
+  text-decoration: underline; transition: color 0.15s;
+}
+.spdf-portada-quitar:hover { color: #a33; }

@@ -2,14 +2,53 @@ import { useState, useEffect } from "react"
 import API from "../../config"
 import "./ListaLibros.css"
 
+function estadoPrincipal(partes) {
+  if (!Array.isArray(partes) || partes.length === 0) return "pendiente"
+  if (partes.some(p => p.estado === "procesando")) return "procesando"
+  if (partes.some(p => p.estado === "pendiente"))  return "pendiente"
+  if (partes.every(p => p.estado === "listo"))     return "listo"
+  return "parcial"
+}
+
 export default function ListaLibros({ refresh }) {
   const [libros, setLibros] = useState([])
+  const [progresos, setProgresos] = useState({}) // libro_id → porcentaje
 
   function cargarLibros() {
     fetch(`${API}/libros`, { credentials: "include" })
       .then(r => r.json())
       .then(data => Array.isArray(data) ? setLibros(data) : setLibros([]))
   }
+
+  // Polling de progreso — solo mientras haya libros procesando
+  useEffect(() => {
+    const hayProcesando = libros.some(l => estadoPrincipal(l.partes) === "procesando")
+    if (!hayProcesando) return
+
+    const intervalo = setInterval(async () => {
+      // Recargar lista para actualizar estados de partes
+      const res = await fetch(`${API}/libros`, { credentials: "include" })
+      const data = await res.json()
+      if (!Array.isArray(data)) return
+      setLibros(data)
+
+      // Para cada libro procesando, consultar el porcentaje
+      const nuevosProgresos = {}
+      for (const libro of data) {
+        if (estadoPrincipal(libro.partes) === "procesando") {
+          try {
+            const r = await fetch(`${API}/libros/${libro.id}/progreso`, { credentials: "include" })
+            const prog = await r.json()
+            const parteActiva = prog.partes?.find(p => p.estado === "procesando")
+            nuevosProgresos[libro.id] = parteActiva?.porcentaje ?? 0
+          } catch (e) {}
+        }
+      }
+      setProgresos(nuevosProgresos)
+    }, 3000)
+
+    return () => clearInterval(intervalo)
+  }, [libros])
 
   useEffect(() => { cargarLibros() }, [refresh])
 
@@ -27,10 +66,9 @@ export default function ListaLibros({ refresh }) {
   }
 
   function estadoBadge(libro) {
-    const tienePartes = libro.partes > 0
-    const procesando  = false // futuros: comprobar si alguna parte está procesando
-    if (!tienePartes)   return "privado"
-    if (libro.visible)  return "publicado"
+    const estado = estadoPrincipal(libro.partes)
+    if (estado === "procesando" || estado === "pendiente") return "procesando"
+    if (libro.visible) return "publicado"
     return "privado"
   }
 
@@ -41,9 +79,13 @@ export default function ListaLibros({ refresh }) {
   return (
     <div className="ll-list">
       {libros.map(libro => {
+        const estado = estadoPrincipal(libro.partes)
+        const estaListo = estado === "listo"
         const badge = estadoBadge(libro)
+        const porcentaje = progresos[libro.id] ?? 0
+
         return (
-          <div key={libro.id} className="ll-row">
+          <div key={libro.id} className={`ll-row ${estado === "procesando" ? "procesando" : ""}`}>
             <div className="ll-cover">
               {libro.portada_url
                 ? <img src={libro.portada_url} alt={libro.titulo} />
@@ -54,21 +96,31 @@ export default function ListaLibros({ refresh }) {
               <div className="ll-titulo">{libro.titulo}</div>
               <div className="ll-meta">
                 {libro.autor ? `${libro.autor} · ` : ""}
-                {libro.num_paginas} págs · {libro.partes} partes
+                {libro.num_paginas} págs · {libro.partes.length} partes
               </div>
               <div className="ll-partes">
-                {Array.from({ length: libro.partes }).map((_, i) => (
-                  <div key={i} className="ll-dot listo" />
+                {libro.partes.map((p, i) => (
+                  <div key={i} className={`ll-dot ${p.estado}`} />
                 ))}
               </div>
+              {estado === "procesando" && (
+                <div className="ll-progreso-wrap">
+                  <div className="ll-progreso-barra-fondo">
+                    <div className="ll-progreso-barra" style={{ width: `${porcentaje}%` }} />
+                  </div>
+                  <span className="ll-progreso-label">{porcentaje}%</span>
+                </div>
+              )}
             </div>
             <div className="ll-actions">
               <span className={`ll-badge ${badge}`}>
-                {badge === "publicado" ? "Publicado" : "Sin publicar"}
+                {badge === "publicado" ? "Publicado" : badge === "procesando" ? "Procesando" : "Sin publicar"}
               </span>
               <button
                 className="ll-btn-vis"
                 onClick={() => cambiarVisibilidad(libro.id, !libro.visible)}
+                disabled={!estaListo}
+                title={!estaListo ? "El libro aún no está listo" : ""}
               >
                 {libro.visible ? "Despublicar" : "Publicar"}
               </button>

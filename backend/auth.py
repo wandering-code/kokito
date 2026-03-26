@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Cookie, HTTPException, Request, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from database import SessionLocal, Usuario
 import os
 
@@ -57,7 +57,7 @@ def obtener_usuario_actual(kokito_token: Optional[str] = Cookie(None)):
         db.close()
 
 
-def requerir_admin(usuario: Usuario = None):
+def requerir_admin(usuario = Depends(obtener_usuario_actual)):
     if usuario.rol != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

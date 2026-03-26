@@ -4,7 +4,7 @@
 
 .ll-row {
   display: flex; align-items: center; gap: 14px;
-  padding: 12px 0; border-bottom: 1px solid var(--cr-warm);
+  padding: 16px 0; border-bottom: 1px solid var(--cr-warm);
 }
 .ll-row:last-child { border-bottom: none; padding-bottom: 0; }
 .ll-row:first-child { padding-top: 0; }
@@ -49,3 +49,44 @@
   transition: color 0.15s; line-height: 0;
 }
 .ll-btn-del:hover { color: #a33; }
+
+.ll-row.procesando {
+  background: rgba(196, 168, 130, 0.12);
+  border-color: rgba(196, 168, 130, 0.35);
+  align-items: flex-start;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+.ll-dot.procesando { background: var(--cr-tan); }
+.ll-dot.pendiente  { background: var(--cr-warm); }
+.ll-dot.error      { background: #c0392b; }
+
+.ll-badge.procesando {
+  background: rgba(196, 168, 130, 0.15);
+  color: var(--cr-tan);
+}
+
+.ll-btn-vis:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ll-progreso-wrap {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px;
+}
+
+.ll-progreso-barra-fondo {
+  flex: 1; height: 3px; background: var(--cr-warm);
+  border-radius: 2px; overflow: hidden;
+}
+
+.ll-progreso-barra {
+  height: 3px; background: #C4A820;
+  border-radius: 2px; transition: width 0.4s ease;
+}
+
+.ll-progreso-label {
+  font-size: 10px; color: #8B6B00;
+  white-space: nowrap; min-width: 28px;
+}

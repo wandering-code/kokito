@@ -12,7 +12,7 @@ from fastapi import Response, Depends
 from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin, obtener_usuario_opcional
 import os
 from datetime import datetime, timezone
-from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario
+from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario, Libro, Parte, EstadoParte
 
 app = FastAPI()
 
@@ -27,7 +27,10 @@ app.add_middleware(
     allow_credentials=True
 )
 
-def analizar_y_registrar_libro(pdf_bytes: bytes, titulo: str, autor: str, paginas_por_parte: int, db):
+PORTADAS_DIR = "/app/portadas"
+
+def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
+    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url=""):
     # Calcular hash del contenido
     hash_contenido = hashlib.sha256(pdf_bytes).hexdigest()
 
@@ -52,7 +55,14 @@ def analizar_y_registrar_libro(pdf_bytes: bytes, titulo: str, autor: str, pagina
         hash_contenido=hash_contenido,
         num_paginas=num_paginas,
         paginas_por_parte=paginas_por_parte,
-        visible=False
+        visible=False,
+        sinopsis=sinopsis or None,
+        serie=serie or None,
+        anio=anio,
+        genero=genero or None,
+        editorial=editorial or None,
+        isbn=isbn or None,
+        portada_url=portada_url or None
     )
     db.add(libro)
     db.flush()  # Para obtener el libro.id sin hacer commit todavía
@@ -88,14 +98,24 @@ async def convertir(
     autor: str = Form(""),
     paginas_por_parte: int = Form(50),
     proveedor: str = Form("edge"),
-    voz: UploadFile = File(None)
+    voz: UploadFile = File(None),
+    sinopsis: str = Form(""),
+    serie: str = Form(""),
+    anio: int = Form(None),
+    genero: str = Form(""),
+    editorial: str = Form(""),
+    isbn: str = Form(""),
+    portada_url: str = Form(""),
 ):
     pdf_bytes = await pdf.read()
     db = SessionLocal()
 
     try:
         libro, es_nuevo = analizar_y_registrar_libro(
-            pdf_bytes, titulo, autor, paginas_por_parte, db
+            pdf_bytes, titulo, autor, paginas_por_parte, db,
+            sinopsis=sinopsis, serie=serie, anio=anio,
+            genero=genero, editorial=editorial, isbn=isbn,
+            portada_url=portada_url
         )
 
         if not es_nuevo:
@@ -114,7 +134,8 @@ async def convertir(
 
         voz_bytes = await voz.read() if voz else b""
         tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor, primera_parte.id, voz_bytes)
-
+        primera_parte.tarea_id = tarea.id
+        primera_parte.proveedor = proveedor
         # Actualizar estado de la primera parte a "procesando"
         primera_parte.estado = EstadoParte.procesando
         db.commit()
@@ -180,8 +201,11 @@ def listar_libros():
                 "num_paginas": l.num_paginas,
                 "fecha_subida": l.fecha_subida,
                 "visible": l.visible,
-                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count(),
-                "portada_url": l.portada_url
+                "portada_url": l.portada_url,
+                "partes": [
+                    {"estado": p.estado.value}
+                    for p in db.query(Parte).filter(Parte.libro_id == l.id).order_by(Parte.numero_parte).all()
+                ]
             }
             for l in libros
         ]
@@ -237,6 +261,12 @@ def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
             "autor": libro.autor,
             "num_paginas": libro.num_paginas,
             "portada_url": libro.portada_url,
+            "sinopsis": libro.sinopsis,
+            "serie": libro.serie,
+            "anio": libro.anio,
+            "genero": libro.genero,
+            "editorial": libro.editorial,
+            "isbn": libro.isbn,
             "partes": [
                 {
                     "id": p.id,
@@ -258,14 +288,7 @@ def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
 def borrar_libro(libro_id: int):
     db = SessionLocal()
     try:
-        partes = db.query(Parte).filter(Parte.libro_id == libro_id).all()
-        for parte in partes:
-            db.delete(parte)
-        libro = db.query(Libro).filter(Libro.id == libro_id).first()
-        if not libro:
-            raise HTTPException(status_code=404, detail="Libro no encontrado")
-        db.delete(libro)
-        db.commit()
+        _borrar_libro_completo(libro_id, db)
         return {"ok": True}
     finally:
         db.close()
@@ -321,7 +344,7 @@ def logout(response: Response):
     return {"ok": True}
 
 
-@app.get("/me")
+@app.get("/me", response_model=None)
 def me(usuario: Usuario = Depends(obtener_usuario_actual)):
     return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
 
@@ -449,7 +472,7 @@ def guardar_progreso(
         db.close()
 
 
-@app.get("/progreso/{libro_id}")
+@app.get("/progreso/{libro_id}", response_model=None)
 def obtener_progreso(libro_id: int, usuario: Usuario = Depends(obtener_usuario_actual)):
     db = SessionLocal()
     try:
@@ -469,7 +492,7 @@ def obtener_progreso(libro_id: int, usuario: Usuario = Depends(obtener_usuario_a
     finally:
         db.close()
 
-@app.post("/partes/{parte_id}/escuchada")
+@app.post("/partes/{parte_id}/escuchada", response_model=None)
 def marcar_escuchada(parte_id: int, usuario: Usuario = Depends(obtener_usuario_actual)):
     db = SessionLocal()
     try:
@@ -500,4 +523,150 @@ def servir_voz(nombre: str):
     if not os.path.exists(ruta):
         raise HTTPException(status_code=404, detail="Voz no encontrada")
     media = "audio/mpeg" if nombre.endswith(".mp3") else "audio/wav"
+    return FileResponse(ruta, media_type=media)
+
+@app.get("/libros/{libro_id}/progreso", response_model=None)
+def progreso_libro(libro_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        partes = db.query(Parte).filter(
+            Parte.libro_id == libro_id
+        ).order_by(Parte.numero_parte).all()
+
+        resultado = []
+        for parte in partes:
+            info = {
+                "parte_id": parte.id,
+                "numero_parte": parte.numero_parte,
+                "estado": parte.estado.value,
+                "porcentaje": None
+            }
+
+            if parte.estado == EstadoParte.procesando and parte.tarea_id:
+                tarea = AsyncResult(parte.tarea_id, app=celery_app)
+                if tarea.state == "PROGRESS":
+                    info["porcentaje"] = tarea.info.get("porcentaje_override") or int(
+                        (tarea.info.get("pagina", 0) / max(tarea.info.get("total", 1), 1)) * 50
+                    )
+                elif tarea.state == "PENDING":
+                    info["porcentaje"] = 0
+
+            resultado.append(info)
+
+        return {"partes": resultado}
+    finally:
+        db.close()
+
+@app.get("/admin/procesando", response_model=None)
+def libro_procesando(usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        partes_procesando = db.query(Parte).filter(
+            Parte.estado == EstadoParte.procesando
+        ).all()
+
+        if not partes_procesando:
+            return {"procesos": {}}
+
+        procesos = {}
+        for parte in partes_procesando:
+            proveedor = parte.proveedor or "edge"
+            if proveedor in procesos:
+                continue
+
+            libro = db.query(Libro).filter(Libro.id == parte.libro_id).first()
+            partes_libro = db.query(Parte).filter(
+                Parte.libro_id == parte.libro_id
+            ).order_by(Parte.numero_parte).all()
+
+            resultado = []
+            for p in partes_libro:
+                info = {
+                    "parte_id": p.id,
+                    "numero_parte": p.numero_parte,
+                    "estado": p.estado.value,
+                    "porcentaje": None
+                }
+                if p.estado == EstadoParte.procesando and p.tarea_id:
+                    tarea = AsyncResult(p.tarea_id, app=celery_app)
+                    if tarea.state == "PROGRESS":
+                        info["porcentaje"] = tarea.info.get("porcentaje_override") or int(
+                            (tarea.info.get("pagina", 0) / max(tarea.info.get("total", 1), 1)) * 50
+                        )
+                    elif tarea.state == "PENDING":
+                        info["porcentaje"] = 0
+
+                resultado.append(info)
+
+            procesos[proveedor] = {
+                "libro_id": libro.id,
+                "titulo": libro.titulo,
+                "autor": libro.autor,
+                "partes": resultado
+            }
+
+        return {"procesos": procesos}
+    finally:
+        db.close()
+
+@app.delete("/admin/cancelar/{libro_id}", response_model=None)
+def cancelar_libro(libro_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        _borrar_libro_completo(libro_id, db)
+        return {"ok": True}
+    finally:
+        db.close()
+
+def _borrar_libro_completo(libro_id: int, db):
+    """Función auxiliar que borra un libro y todas sus dependencias en orden."""
+    partes = db.query(Parte).filter(Parte.libro_id == libro_id).all()
+    ids_partes = [p.id for p in partes]
+
+    if ids_partes:
+        db.query(EstadoParteUsuario).filter(
+            EstadoParteUsuario.parte_id.in_(ids_partes)
+        ).delete(synchronize_session=False)
+        db.query(ProgresoParte).filter(
+            ProgresoParte.parte_id.in_(ids_partes)
+        ).delete(synchronize_session=False)
+        db.query(ProgresoUsuario).filter(
+            ProgresoUsuario.parte_id.in_(ids_partes)
+        ).delete(synchronize_session=False)
+
+    for parte in partes:
+        if parte.tarea_id:
+            celery_app.control.revoke(parte.tarea_id, terminate=True)
+        if parte.ruta_mp3 and os.path.exists(parte.ruta_mp3):
+            os.remove(parte.ruta_mp3)
+        db.delete(parte)
+
+    libro = db.query(Libro).filter(Libro.id == libro_id).first()
+    if libro:
+        db.delete(libro)
+
+    db.commit()
+
+
+@app.post("/portadas", response_model=None)
+async def subir_portada(imagen: UploadFile = File(...), usuario=Depends(requerir_admin)):
+    os.makedirs(PORTADAS_DIR, exist_ok=True)
+    ext = imagen.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        raise HTTPException(status_code=400, detail="Formato no soportado")
+    nombre = f"{hashlib.md5(await imagen.read()).hexdigest()}.{ext}"
+    ruta = os.path.join(PORTADAS_DIR, nombre)
+    # Rewind para leer de nuevo tras el md5
+    await imagen.seek(0)
+    with open(ruta, "wb") as f:
+        f.write(await imagen.read())
+    return {"url": f"/portadas/{nombre}"}
+
+@app.get("/portadas/{nombre}")
+def servir_portada(nombre: str):
+    ruta = os.path.join(PORTADAS_DIR, nombre)
+    if not os.path.exists(ruta):
+        raise HTTPException(status_code=404, detail="Portada no encontrada")
+    ext = nombre.rsplit(".", 1)[-1].lower()
+    media = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
     return FileResponse(ruta, media_type=media)

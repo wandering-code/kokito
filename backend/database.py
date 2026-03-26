@@ -48,6 +48,12 @@ class Libro(Base):
     fecha_subida      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     subido_por        = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     portada_url       = Column(String, nullable=True)
+    sinopsis          = Column(String, nullable=True)
+    serie             = Column(String, nullable=True)
+    anio              = Column(Integer, nullable=True)
+    genero            = Column(String, nullable=True)
+    editorial         = Column(String, nullable=True)
+    isbn              = Column(String, nullable=True)
 
     partes            = relationship("Parte", back_populates="libro")
 
@@ -65,6 +71,7 @@ class Parte(Base):
     proveedor         = Column(String, nullable=True)
     duracion_segundos = Column(Integer, nullable=True)
     fecha_procesado   = Column(DateTime, nullable=True)
+    tarea_id          = Column(String, nullable=True)
 
     libro             = relationship("Libro", back_populates="partes")
 
