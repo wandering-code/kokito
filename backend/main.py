@@ -20,7 +20,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://192.168.1.94:5173"
+        "http://192.168.1.94:5173",
+        "https://kokito.wanderingcode.dev"
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,6 +119,8 @@ async def convertir(
         f.write(pdf_bytes)
 
     ruta_voz = ""
+    voz_bytes = await voz.read() if voz else b""
+    
     if voz and voz_bytes:
         ext = voz.filename.rsplit(".", 1)[-1].lower()
         nombre_voz = f"{hashlib.md5(voz_bytes).hexdigest()}.{ext}"
@@ -149,7 +152,6 @@ async def convertir(
         partes = db.query(Parte).filter(Parte.libro_id == libro.id).order_by(Parte.numero_parte).all()
         primera_parte = partes[0]
 
-        voz_bytes = await voz.read() if voz else b""
         tarea = convertir_pdf.delay(proveedor, primera_parte.id, voz_bytes)
         primera_parte.tarea_id = tarea.id
         primera_parte.proveedor = proveedor
@@ -323,12 +325,17 @@ def registro(nombre: str = Form(...), email: str = Form(...), password: str = Fo
             nombre=nombre,
             email=email,
             password_hash=hashear_password(password),
-            rol="usuario"
+            rol="usuario",
+            aprobado=False
         )
         db.add(usuario)
         db.commit()
         db.refresh(usuario)
-        return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
+
+        # Enviar email al admin
+        _enviar_email_admin(nombre, email)
+
+        return {"ok": True, "mensaje": "Registro completado. Tu cuenta está pendiente de aprobación."}
     finally:
         db.close()
 
@@ -341,13 +348,16 @@ def login(email: str = Form(...), password: str = Form(...), response: Response 
         if not usuario or not verificar_password(password, usuario.password_hash):
             raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
         
+        if not usuario.aprobado:
+            raise HTTPException(status_code=403, detail="Tu cuenta todavía no ha sido aprobada por un administrador")
+        
         token = crear_token(usuario.id, usuario.rol)
         response.set_cookie(
             key="kokito_token",
             value=token,
             httponly=True,
             max_age=30 * 24 * 60 * 60,
-            samesite="none",
+            samesite="lax",
             secure=False
         )
         return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
@@ -692,6 +702,82 @@ def _borrar_libro_completo(libro_id: int, db):
 
     db.commit()
 
+def _enviar_email_admin(nombre: str, email: str):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "danielgarciaalbert@icloud.com")
+
+    if not SMTP_USER or not SMTP_PASS:
+        print("⚠️  SMTP no configurado — email de notificación no enviado")
+        return
+
+    try:
+        msg = MIMEText(
+            f"Nuevo registro en Kokito:\n\nNombre: {nombre}\nEmail: {email}\n\n"
+            f"Entra al panel de administración para aprobar o rechazar la cuenta."
+        )
+        msg["Subject"] = f"[Kokito] Nuevo usuario pendiente de aprobación: {nombre}"
+        msg["From"] = SMTP_USER
+        msg["To"] = ADMIN_EMAIL
+
+        with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
+    except Exception as e:
+        print(f"⚠️  Error enviando email: {e}")
+
+
+def _enviar_email_usuario(email: str, nombre: str, aprobado: bool, desactivado: bool = False):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
+
+    if not SMTP_USER or not SMTP_PASS:
+        print("⚠️  SMTP no configurado — email de notificación no enviado")
+        return
+
+    if aprobado:
+        asunto = "[Kokito] Tu cuenta ha sido aprobada"
+        cuerpo = (
+            f"Hola {nombre},\n\n"
+            f"Tu cuenta en Kokito ha sido aprobada. "
+            f"Ya puedes iniciar sesión y empezar a escuchar.\n\n"
+            f"kokito.wanderingcode.dev\n"
+        )
+    elif desactivado:
+        asunto = "[Kokito] Tu cuenta ha sido desactivada"
+        cuerpo = (
+            f"Hola {nombre},\n\n"
+            f"Tu cuenta en Kokito ha sido desactivada temporalmente por un administrador.\n\n"
+            f"Si crees que es un error, contacta con el administrador.\n"
+        )
+    else:
+        asunto = "[Kokito] Tu solicitud de acceso"
+        cuerpo = (
+            f"Hola {nombre},\n\n"
+            f"Tu solicitud de acceso a Kokito no ha sido aprobada.\n\n"
+            f"Si crees que es un error, contacta con el administrador.\n"
+        )
+
+    try:
+        msg = MIMEText(cuerpo)
+        msg["Subject"] = asunto
+        msg["From"] = SMTP_USER
+        msg["To"] = email
+
+        with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, email, msg.as_string())
+    except Exception as e:
+        print(f"⚠️  Error enviando email: {e}")
+
 
 @app.post("/portadas", response_model=None)
 async def subir_portada(imagen: UploadFile = File(...), usuario=Depends(requerir_admin)):
@@ -715,3 +801,73 @@ def servir_portada(nombre: str):
     ext = nombre.rsplit(".", 1)[-1].lower()
     media = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
     return FileResponse(ruta, media_type=media)
+
+@app.get("/admin/usuarios", response_model=None)
+def listar_usuarios(usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        usuarios = db.query(Usuario).order_by(Usuario.fecha_registro.desc()).all()
+        return [
+            {
+                "id": u.id,
+                "nombre": u.nombre,
+                "email": u.email,
+                "rol": u.rol,
+                "aprobado": u.aprobado,
+                "fecha_registro": u.fecha_registro
+            }
+            for u in usuarios
+        ]
+    finally:
+        db.close()
+
+@app.patch("/admin/usuarios/{usuario_id}/aprobado", response_model=None)
+def cambiar_aprobacion(usuario_id: int, aprobado: bool, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        u = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not u:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        estaba_aprobado = u.aprobado
+        u.aprobado = aprobado
+        db.commit()
+        
+        # Si se desactiva a alguien que ya estaba aprobado → desactivado
+        # Si se rechaza a alguien que nunca estuvo aprobado → rechazado
+        _enviar_email_usuario(
+            u.email, u.nombre, aprobado,
+            desactivado=(not aprobado and estaba_aprobado)
+        )
+        return {"ok": True, "aprobado": u.aprobado}
+    finally:
+        db.close()
+
+@app.delete("/admin/usuarios/{usuario_id}", response_model=None)
+def borrar_usuario(usuario_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        u = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not u:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        if u.rol == "admin":
+            raise HTTPException(status_code=400, detail="No se puede borrar un administrador")
+
+        # Borrar registros relacionados en orden correcto
+        db.query(EstadoParteUsuario).filter(
+            EstadoParteUsuario.usuario_id == usuario_id
+        ).delete(synchronize_session=False)
+
+        db.query(ProgresoParte).filter(
+            ProgresoParte.usuario_id == usuario_id
+        ).delete(synchronize_session=False)
+
+        db.query(ProgresoUsuario).filter(
+            ProgresoUsuario.usuario_id == usuario_id
+        ).delete(synchronize_session=False)
+
+        db.delete(u)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()

@@ -232,13 +232,17 @@
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
-  .libro-content    { flex-direction: column; }
-  .libro-left       { width: 100%; flex-direction: row; gap: 16px; border-right: none; border-bottom: 1px solid var(--cr-warm); padding: 16px; }
-  .libro-cover      { width: 72px; height: 108px; aspect-ratio: unset; flex-shrink: 0; }
-  .libro-prog       { display: none; }
-  .libro-right      { padding: 20px 16px; }
-  .libro-topbar     { padding: 12px 16px; }
-  .libro-brand      { display: none; }
+  .libro-content       { flex-direction: column; }
+  .libro-left          { width: 100%; flex-direction: row; gap: 16px; border-right: none; border-bottom: 1px solid var(--cr-warm); padding: 16px; }
+  .libro-cover         { width: 72px; height: 108px; aspect-ratio: unset; flex-shrink: 0; }
+  .libro-prog          { display: none; }
+  .libro-right         { padding: 20px 16px; }
+  .libro-topbar        { padding: 12px 16px; }
+  .libro-brand         { display: none; }
 }
 
-.badge-escuchada { color: var(--cr-muted); background: var(--cr-warm); }
+@media (max-width: 767px) {
+  .libro-root {
+    padding-bottom: 64px;
+  }
+}

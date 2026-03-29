@@ -1,16 +1,15 @@
 import { useState, useEffect } from "react"
-import { useAuth } from "../../AuthContext"
+import { useAuth } from "../../context/AuthContext"
 import { useNavigate, useLocation } from "react-router-dom"
 import API from "../../config"
 import "./BibliotecaPage.css"
 
 const VISTA_KEY = "kokito_vista_biblioteca"
 
-export default function BibliotecaPage({ modoAdmin: modoAdminProp = false }) {
-  const { usuario, logout } = useAuth()
+export default function BibliotecaPage() {
+  const { usuario } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const modoAdmin = modoAdminProp || location.state?.modoAdmin || false
 
   const [libros, setLibros]   = useState([])
   const [progreso, setProgreso] = useState({})
@@ -65,34 +64,11 @@ export default function BibliotecaPage({ modoAdmin: modoAdminProp = false }) {
   }
 
   function irAlLibro(libro) {
-    navigate(`/libro/${libro.id}`, { state: { modoAdmin } })
+    navigate(`/libro/${libro.id}`)
   }
 
   return (
     <div className="bib-root">
-
-      {modoAdmin && (
-        <div className="bib-admin-bar">
-          <span>Viendo como usuario</span>
-          <button className="bib-admin-back" onClick={() => navigate("/admin", { replace: true })}>
-            ← Volver al panel de admin
-          </button>
-        </div>
-      )}
-
-      {/* Barra superior */}
-      <div className="bib-topbar">
-        <div>
-          <span className="bib-brand-name">kokito</span>
-          <span className="bib-brand-tag">tu biblioteca de audiolibros</span>
-        </div>
-        <div className="bib-user">
-          <span className="bib-user-name">Hola, {usuario.nombre}</span>
-          {!modoAdmin && (
-            <button className="bib-btn-out" onClick={logout}>Cerrar sesión</button>
-          )}
-        </div>
-      </div>
 
       {/* Contenido */}
       <div className="bib-content">

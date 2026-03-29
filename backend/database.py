@@ -81,12 +81,13 @@ class Parte(Base):
 class Usuario(Base):
     __tablename__ = "usuarios"
 
-    id            = Column(Integer, primary_key=True, index=True)
-    email         = Column(String, unique=True, nullable=False)
-    nombre        = Column(String, nullable=False)
-    password_hash = Column(String, nullable=False)
-    rol           = Column(Enum(RolUsuario), default=RolUsuario.usuario)
+    id             = Column(Integer, primary_key=True, index=True)
+    email          = Column(String, unique=True, nullable=False)
+    nombre         = Column(String, nullable=False)
+    password_hash  = Column(String, nullable=False)
+    rol            = Column(Enum(RolUsuario), default=RolUsuario.usuario)
     fecha_registro = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    aprobado       = Column(Boolean, default=False, nullable=False)
 
 
 class ProgresoUsuario(Base):

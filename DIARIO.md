@@ -3042,3 +3042,251 @@ sudo systemctl start cloudflared
 - **IP fija local** — la IP `192.168.1.106` se asigna por DHCP y podría cambiar. Configurar IP fija en Netplan o reservar la IP en el router.
 - **Script de actualización** — automatizar `git pull` + `docker-compose up --build` para desplegar nuevas versiones cómodamente.
 - **Subdominios futuros** — para nuevas apps añadir entrada en `/etc/cloudflared/config.yml` y ejecutar `cloudflared tunnel route dns kokito nuevaapp.wanderingcode.dev`.
+
+---
+
+## Sesión 19 — Navbar responsive, registro con validación manual y gestión de usuarios
+
+### Lo que hemos construido
+
+- **Navbar responsive** — barra superior en escritorio y barra inferior con iconos en móvil
+- **Submenú de administración** — desplegable con opciones Libros y Usuarios en ambas plataformas
+- **Eliminación de barras antiguas** — `BibliotecaPage`, `LibroPage` y `AdminPage` ya no tienen cabecera propia
+- **Rutas separadas de admin** — `/admin/libros` y `/admin/usuarios`
+- **Campo `aprobado` en usuarios** — migración Alembic con `server_default='true'` para filas existentes
+- **Registro con validación manual** — el usuario se registra pero no puede entrar hasta que el admin lo apruebe
+- **Notificaciones por email** — al admin cuando llega un registro, al usuario cuando es aprobado, desactivado o rechazado
+- **Página de registro** — misma estética que el login, con pantalla de confirmación tras enviar
+- **Vista de usuarios del admin** — secciones pendientes, activos y administradores con acciones
+- **SpinnerGato** — animación Lottie de un gatito con overlay blur y transición suave de entrada y salida
+- **Librería Lucide React** instalada para iconos
+
+---
+
+### Navbar — componente `NavBar.jsx`
+
+**Comportamiento:**
+- En escritorio (≥768px): barra superior fija con kokito a la izquierda, enlaces en el centro y perfil a la derecha
+- En móvil (<768px): barra inferior fija con iconos y etiquetas
+
+**Secciones:**
+- `BookOpen` — Biblioteca → `/biblioteca`
+- `Settings` — Administración (solo admin) → submenú con Libros y Usuarios
+- `User` — Perfil → submenú con nombre y cerrar sesión
+
+**Decisiones de diseño:**
+- Fondo `--cr-surface` para mantener coherencia con las barras antiguas
+- Layout en escritorio con `grid-template-columns: 1fr auto 1fr` para centrar los enlaces y anclar kokito a la izquierda y el perfil a la derecha
+- Punto debajo del icono activo en móvil (`::after` con `background: var(--cr-brown)`)
+- Icono y texto en negrita cuando está activo en móvil
+- Refs separados para el submenú de admin en escritorio (`adminMenuRef`) y móvil (`adminMenuRefMovil`) para evitar conflictos
+- Función `navegarAdmin(ruta)` que cierra el menú y navega en el mismo tick
+- Evento `mousedown` con `stopPropagation` en los botones del menú para evitar que el listener del documento cierre el menú antes de que el botón procese la acción
+
+**Instalación de Lucide React:**
+```bash
+cd frontend
+npm install lucide-react
+```
+En producción se instala automáticamente con `npm install` al hacer deploy.
+
+---
+
+### Limpieza de barras antiguas
+
+Se eliminaron las cabeceras propias de:
+- `BibliotecaPage.jsx` — bloque `bib-topbar` y toda la lógica de `modoAdmin`
+- `LibroPage.jsx` — bloque `libro-topbar`, `libro-admin-bar` y referencias a `modoAdmin`
+- `AdminPage.jsx` — bloque `adm-topbar` y botón "Ver como usuario"
+
+El botón "← Biblioteca" de `LibroPage` también se eliminó — la navbar ya cubre esa funcionalidad.
+
+**Padding para compensar las barras:**
+```css
+.contenido-principal {
+  padding-top: 56px; /* altura navbar superior */
+}
+
+@media (max-width: 767px) {
+  .contenido-principal {
+    padding-top: 0;
+    padding-bottom: 64px; /* altura navbar inferior */
+  }
+}
+```
+
+---
+
+### Registro con validación manual
+
+**Flujo:**
+1. Usuario accede a `/registro` desde el link en el login
+2. Rellena nombre, email y contraseña (mínimo 8 caracteres — validado en frontend)
+3. Se crea la cuenta con `aprobado=False`
+4. El admin recibe un email de notificación
+5. El admin entra al panel → Administración → Usuarios → aprueba o rechaza
+6. El usuario recibe un email con el resultado
+7. Solo los usuarios con `aprobado=True` pueden hacer login
+
+**Mensaje en login si cuenta no aprobada:**
+```
+Tu cuenta todavía no ha sido aprobada por un administrador
+```
+
+**Campo `aprobado` en BBDD:**
+```python
+# database.py
+aprobado = Column(Boolean, default=False, nullable=False)
+```
+
+**Migración — problema encontrado:** PostgreSQL no puede añadir una columna `NOT NULL` sin valor por defecto cuando ya hay filas. Solución: editar el script de migración generado y añadir `server_default='true'` (para que los usuarios existentes como el admin no queden bloqueados).
+
+```python
+# migrations/versions/xxxx_aprobado_en_usuarios.py
+op.add_column('usuarios', sa.Column('aprobado', sa.Boolean(), nullable=False, server_default='true'))
+```
+
+---
+
+### Notificaciones por email
+
+**Configuración SMTP para iCloud:**
+- Requiere contraseña de aplicación (no la contraseña normal) — generada en appleid.apple.com → Inicio de sesión y seguridad → Contraseñas de aplicaciones
+- Servidor: `smtp.mail.me.com`, puerto `587`, con `STARTTLS`
+
+```python
+with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+    server.starttls()
+    server.login(SMTP_USER, SMTP_PASS)
+    server.sendmail(SMTP_USER, destinatario, msg.as_string())
+```
+
+**Variables de entorno en `backend/.env`:**
+```
+SMTP_USER=danielgarciaalbert@icloud.com
+SMTP_PASS=xxxx-xxxx-xxxx-xxxx
+ADMIN_EMAIL=danielgarciaalbert@icloud.com
+```
+
+**Tres tipos de email al usuario:**
+- **Aprobado** — "Tu cuenta ha sido aprobada, ya puedes iniciar sesión"
+- **Rechazado** — "Tu solicitud de acceso no ha sido aprobada" (usuario nunca estuvo aprobado)
+- **Desactivado** — "Tu cuenta ha sido desactivada temporalmente" (usuario estaba aprobado)
+
+La distinción entre rechazado y desactivado se hace comprobando `estaba_aprobado` antes de cambiar el campo.
+
+---
+
+### Endpoints nuevos en `main.py`
+
+```
+GET    /admin/usuarios                    → lista todos los usuarios
+PATCH  /admin/usuarios/{id}/aprobado      → aprueba o desactiva un usuario
+DELETE /admin/usuarios/{id}              → borra un usuario y sus datos relacionados
+```
+
+**Borrado de usuario con claves foráneas** — hay que borrar en orden correcto antes de borrar el usuario:
+```python
+db.query(EstadoParteUsuario).filter(...).delete(synchronize_session=False)
+db.query(ProgresoParte).filter(...).delete(synchronize_session=False)
+db.query(ProgresoUsuario).filter(...).delete(synchronize_session=False)
+db.delete(u)
+db.commit()
+```
+
+---
+
+### Vista de usuarios del admin — `AdminUsuariosPage.jsx`
+
+Tres secciones:
+- **Pendientes de aprobación** — con badge de contador y botones Aprobar / Rechazar
+- **Usuarios activos** — con botones Desactivar / Eliminar
+- **Administradores** — solo lectura, badge "Admin"
+
+`max-height` en `.usu-list` para que la lista scrollee si hay muchos usuarios:
+```css
+.usu-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+```
+
+**Estado `procesando`** separado de `cargando` — muestra el spinner durante operaciones (aprobar, desactivar, borrar) sin desmontar la página.
+
+---
+
+### SpinnerGato
+
+**Librería:** `@lottiefiles/react-lottie-player` — más compatible con la versión de React del proyecto que `lottie-react`.
+
+```bash
+npm install @lottiefiles/react-lottie-player
+```
+
+**Archivo de animación:** `frontend/src/assets/gato-loading.json` — descargado de lottiefiles.com.
+
+**Comportamiento:**
+- Overlay `position: fixed` con `backdrop-filter: blur(2px)` — oscurece el fondo sin tapar completamente el contenido
+- Tarjeta centrada con la animación del gatito
+- Transición suave de entrada y salida gestionada con `requestAnimationFrame` y `setTimeout`
+
+**Patrón de uso correcto** — para que la transición de salida funcione, el componente debe estar siempre montado en el DOM y controlarse con la prop `visible`:
+```jsx
+// ✓ Correcto — permite animación de salida
+<SpinnerGato visible={cargando || procesando} />
+
+// ✗ Incorrecto — desmonta el componente instantáneamente
+{cargando && <SpinnerGato />}
+```
+
+**Problema encontrado — `framer-motion` incompatible:** genera conflicto de versiones de React con `@lottiefiles/react-lottie-player`. Solución: animación de salida implementada manualmente con `requestAnimationFrame` + `setTimeout` + clases CSS.
+
+---
+
+### Cookie de sesión — configuración definitiva para desarrollo
+
+`samesite="none"` requiere obligatoriamente `secure=True`, pero `secure=True` no funciona en `http://localhost`. La combinación correcta para desarrollo local con el proxy de Vite es:
+
+```python
+response.set_cookie(
+    key="kokito_token",
+    value=token,
+    httponly=True,
+    max_age=30 * 24 * 60 * 60,
+    samesite="lax",
+    secure=False
+)
+```
+
+`samesite="lax"` funciona sin HTTPS y es compatible con el proxy de Vite — las peticiones van a `/api` en el mismo origen. En producción con HTTPS usar `samesite="none"` y `secure=True`.
+
+---
+
+### Archivos creados o modificados
+
+**Frontend:**
+- `frontend/src/components/NavBar.jsx` + `NavBar.css` — nuevo
+- `frontend/src/components/SpinnerGato.jsx` + `SpinnerGato.css` — nuevo
+- `frontend/src/pages/RegistroPage.jsx` — nuevo (reutiliza `LoginPage.css`)
+- `frontend/src/pages/admin/AdminUsuariosPage.jsx` + `AdminUsuariosPage.css` — nuevo
+- `frontend/src/App.jsx` — rutas nuevas, navbar integrada, spinner global
+- `frontend/src/pages/usuario/BibliotecaPage.jsx` — eliminada barra y lógica modoAdmin
+- `frontend/src/pages/usuario/LibroPage.jsx` — eliminada barra y lógica modoAdmin
+- `frontend/src/pages/admin/AdminPage.jsx` — eliminada barra y botón "Ver como usuario"
+- `frontend/src/assets/gato-loading.json` — nuevo
+
+**Backend:**
+- `backend/database.py` — campo `aprobado` en `Usuario`
+- `backend/main.py` — endpoints `/registro`, `/login`, `/admin/usuarios` actualizados y nuevos, funciones `_enviar_email_admin` y `_enviar_email_usuario`
+- `backend/migrations/versions/xxxx_aprobado_en_usuarios.py` — nueva migración
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Página de perfil de usuario** — modificación de datos personales (nombre, contraseña)
+- **Deploy en el mini PC** — actualizar con `git pull` + `npm run build` + `alembic upgrade head`
+- **Google Books API** — mejor cobertura que Open Library para libros en español
+- **Botón de cancelar** en la fila del libro en `ListaLibros`
+- **Sistema de solicitudes** — formulario para que usuarios pidan libros
+- **SpinnerGato en más páginas** — `BibliotecaPage` y `LibroPage`

@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { useAuth } from "./AuthContext"
+import { useAuth } from "./context/AuthContext"
 import "./LoginPage.css"
+import { useNavigate } from "react-router-dom"
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError]       = useState(null)
   const [cargando, setCargando] = useState(false)
+  const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -114,7 +116,7 @@ export default function LoginPage() {
           </button>
 
           <p className="lp-footer">
-            ¿Sin cuenta? <a href="#">Solicitar acceso</a>
+            ¿Sin cuenta? <a href="#" onClick={(e) => { e.preventDefault(); navigate("/registro") }}>Solicitar acceso</a>
           </p>
         </form>
 

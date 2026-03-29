@@ -1,0 +1,161 @@
+.usu-root {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.usu-section-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--cr-muted);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.usu-badge-count {
+  background: var(--cr-brown);
+  color: var(--cr-bg);
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.usu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.usu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-border);
+  border-radius: 10px;
+}
+
+.usu-row--pendiente {
+  border-color: rgba(139, 107, 74, 0.35);
+  background: rgba(139, 107, 74, 0.04);
+}
+
+.usu-row--admin {
+  background: var(--cr-surface);
+}
+
+.usu-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.usu-nombre {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--cr-dark);
+}
+
+.usu-email {
+  font-size: 0.8rem;
+  color: var(--cr-muted);
+}
+
+.usu-fecha {
+  font-size: 0.75rem;
+  color: var(--cr-tan);
+  margin-top: 2px;
+}
+
+.usu-acciones {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.usu-btn {
+  padding: 0.4rem 0.875rem;
+  border-radius: 7px;
+  border: none;
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.usu-btn--aprobar {
+  background: rgba(74, 110, 76, 0.12);
+  color: var(--cr-green);
+}
+
+.usu-btn--aprobar:hover {
+  background: rgba(74, 110, 76, 0.22);
+}
+
+.usu-btn--secundario {
+  background: var(--cr-warm);
+  color: var(--cr-muted);
+}
+
+.usu-btn--secundario:hover {
+  background: var(--cr-tan);
+  color: var(--cr-bg);
+}
+
+.usu-btn--borrar {
+  background: rgba(170, 51, 51, 0.08);
+  color: #a33;
+}
+
+.usu-btn--borrar:hover {
+  background: rgba(170, 51, 51, 0.16);
+}
+
+.usu-badge-admin {
+  font-size: 0.75rem;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: var(--cr-warm);
+  color: var(--cr-brown);
+  font-weight: 500;
+}
+
+.usu-empty {
+  font-size: 0.875rem;
+  color: var(--cr-muted);
+  padding: 1rem 0;
+}
+
+.usu-loading {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usu-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--cr-warm);
+  border-top-color: var(--cr-brown);
+  animation: girar 0.7s linear infinite;
+}
+
+@media (max-width: 640px) {
+  .usu-root { padding: 1rem; }
+  .usu-row { flex-direction: column; align-items: flex-start; }
+  .usu-acciones { width: 100%; justify-content: flex-end; }
+}

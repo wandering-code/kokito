@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
-import { useAuth } from "../../AuthContext"
+import { useAuth } from "../../context/AuthContext"
 import API from "../../config"
 import "./LibroPage.css"
 
@@ -141,31 +141,7 @@ export default function LibroPage() {
 
   return (
     <div className="libro-root">
-
-      {modoAdmin && (
-        <div className="libro-admin-bar">
-          <span>Viendo como usuario</span>
-          <button className="libro-admin-back" onClick={() => navigate("/admin", { replace: true })}>
-            ← Volver al panel de admin
-          </button>
-        </div>
-      )}
-
-      <div className="libro-topbar">
-        <button className="libro-back" onClick={() => navigate("/biblioteca", { state: { modoAdmin } })}>
-          ← Biblioteca
-        </button>
-        <span className="libro-brand">kokito</span>
-        <div className="libro-user">
-          <span className="libro-user-name">Hola, {usuario.nombre}</span>
-          {!modoAdmin && (
-            <button className="libro-btn-out" onClick={logout}>Cerrar sesión</button>
-          )}
-        </div>
-      </div>
-
       <div className="libro-content">
-
         <div className="libro-left">
           <div className="libro-cover">
             {libro.portada_url
@@ -195,7 +171,6 @@ export default function LibroPage() {
         </div>
 
         <div className="libro-right">
-
           {parteActiva ? (
             <div className="player-card">
               <div>
@@ -290,18 +265,17 @@ export default function LibroPage() {
                       "badge-pendiente"
                     }`}>
                       {activa                        ? "▶ Reproduciendo" :
-                       parte.escuchada               ? "Escuchada"       :
-                       parte.estado === "listo"      ? "Listo"           :
-                       parte.estado === "procesando" ? "Procesando"      :
-                       parte.estado === "error"      ? "Error"           :
-                       "Pendiente"}
+                      parte.escuchada               ? "Escuchada"       :
+                      parte.estado === "listo"      ? "Listo"           :
+                      parte.estado === "procesando" ? "Procesando"      :
+                      parte.estado === "error"      ? "Error"           :
+                      "Pendiente"}
                     </span>
                   </div>
                 )
               })}
             </div>
           </div>
-
         </div>
       </div>
     </div>

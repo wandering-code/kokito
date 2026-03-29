@@ -6,7 +6,7 @@ from database import SessionLocal, Conversion
 MP3_DIR = "/tmp/kokito"
 SERVIDOR_LOCAL = os.getenv("TTS_LOCAL_URL", "http://192.168.1.51:8001")
 
-def dividir_texto_local(texto: str, max_chars: int = 200) -> list[str]:
+def dividir_texto_local(texto: str, max_chars: int = 500) -> list[str]:
     import re
     frases = re.split(r'(?<=[.!?])\s+', texto.strip())
     
