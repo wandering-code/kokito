@@ -84,20 +84,31 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
         print(fragmento[:200])
         print("---")
 
-        response = httpx.post(
-            f"{SERVIDOR_LOCAL}/tts",
-            data={"texto": fragmento},
-            files={"voz": ("voz.wav", voz_bytes, "audio/wav")},
-            timeout=300
-        )
-        response.raise_for_status()
-        print(f"Content-Type recibido: {response.headers.get('content-type')}")
-        print(f"Tamaño respuesta: {len(response.content)} bytes")
+        MAX_INTENTOS = 3
+        for intento in range(MAX_INTENTOS):
+            try:
+                response = httpx.post(
+                    f"{SERVIDOR_LOCAL}/tts",
+                    data={"texto": fragmento},
+                    files={"voz": ("voz.wav", voz_bytes, "audio/wav")},
+                    timeout=600
+                )
+                response.raise_for_status()
+                break
+            except (httpx.ReadTimeout, httpx.ConnectError) as e:
+                print(f"Intento {intento + 1} fallido: {e}")
+                if intento == MAX_INTENTOS - 1:
+                    raise
+                import time
+                time.sleep(5)
+                response.raise_for_status()
+                print(f"Content-Type recibido: {response.headers.get('content-type')}")
+                print(f"Tamaño respuesta: {len(response.content)} bytes")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=MP3_DIR) as tmp:
-            tmp.write(response.content)
-            tmp.flush()
-            segmentos.append(tmp.name)
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=MP3_DIR) as tmp:
+                    tmp.write(response.content)
+                    tmp.flush()
+                    segmentos.append(tmp.name)
 
     # Concatenar todos los fragmentos al final
     audio_final = None

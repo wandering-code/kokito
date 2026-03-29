@@ -65,11 +65,22 @@ export default function ListaLibros({ refresh }) {
     cargarLibros()
   }
 
+  async function reintentar(id) {
+    await fetch(`${API}/admin/reintentar/${id}`, {
+      method: "POST", credentials: "include"
+    })
+    cargarLibros()
+  }
+
   function estadoBadge(libro) {
     const estado = estadoPrincipal(libro.partes)
     if (estado === "procesando" || estado === "pendiente") return "procesando"
     if (libro.visible) return "publicado"
     return "privado"
+  }
+
+  function hayError(partes) {
+    return Array.isArray(partes) && partes.some(p => p.estado === "error")
   }
 
   if (libros.length === 0) return (
@@ -131,6 +142,11 @@ export default function ListaLibros({ refresh }) {
                   <line x1="12" y1="2" x2="2" y2="12"/>
                 </svg>
               </button>
+              {hayError(libro.partes) && estado !== "procesando" && (
+                <button className="ll-btn-retry" onClick={() => reintentar(libro.id)}>
+                  Reintentar
+                </button>
+              )}
             </div>
           </div>
         )

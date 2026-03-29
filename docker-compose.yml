@@ -22,12 +22,10 @@ services:
     volumes:
       - ./backend:/app
       - mp3_data:/tmp/kokito
-      - /Users/wander/.config/gcloud/application_default_credentials.json:/tmp/gcloud_credentials.json
       - ./backend/voces:/app/voces
     environment:
       - DATABASE_URL=postgresql://kokito:kokito@db:5432/kokito
       - CELERY_BROKER_URL=redis://redis:6379/0
-      - GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcloud_credentials.json
       - TTS_LOCAL_URL=http://192.168.1.51:8001
     depends_on:
       - db

@@ -1,16 +1,27 @@
 from celery_app import celery_app
-from database import SessionLocal, Parte, EstadoParte
+from database import SessionLocal, Parte, Libro, EstadoParte
 from tts.edge import process_file_with_edge
 from tts.google import process_file_with_google
 
 @celery_app.task(bind=True)
-def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -> str:
+def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -> str:
     db = SessionLocal()
     parte = db.query(Parte).filter(Parte.id == parte_id).first()
 
     if not parte:
         db.close()
         raise ValueError(f"No existe ninguna parte con id {parte_id}")
+
+    libro = db.query(Libro).filter(Libro.id == parte.libro_id).first()
+
+    if not libro or not libro.ruta_pdf:
+        db.close()
+        raise ValueError("No se encontró el PDF del libro")
+
+    with open(libro.ruta_pdf, "rb") as f:
+        pdf_bytes = f.read()
+
+    filename = libro.titulo
 
     try:
         parte.estado = EstadoParte.procesando
@@ -49,7 +60,7 @@ def convertir_pdf(self, pdf_bytes: bytes, filename: str, proveedor: str, parte_i
         ).order_by(Parte.numero_parte).first()
 
         if siguiente:
-            nueva_tarea = convertir_pdf.delay(pdf_bytes, filename, proveedor, siguiente.id)
+            nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes)
             siguiente.tarea_id = nueva_tarea.id
             db.commit()
 

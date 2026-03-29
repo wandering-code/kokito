@@ -2647,3 +2647,398 @@ a una parte anterior se perdiera la posición en la parte posterior.
 - Revisar por qué no se puede eliminar actualmente un libro desde la vista de administración
 - Hay que implementar alguna manera de opder cortar la prueba de audio que hay cuando se selecciona el local
 - En cuanto a sesiones, cómo funciona? Si yo pongo a convertir un libro que va a tardar horas, y al rato vuelvo a entrar con la cuenta de admin (que es con la que lo lancé), seguiré viendo el progreso? Debería verlo en todo momento, e incluso debería poder cortarlo
+
+---
+
+## Sesión 17 — Mejoras de administración, metadatos y búsqueda de libros
+
+### Lo que hemos construido
+
+- **Persistencia de sesión** — fix del problema de cookie al acceder desde IP local
+- **Proxy de Vite** — el frontend llama a `/api` en lugar de a una URL absoluta, funciona igual desde cualquier dispositivo de la red
+- **Play/pausa de voces** en el selector de Coqui con cambio de icono
+- **Sistema de progreso persistente** — el admin ve el estado del procesamiento aunque recargue o cambie de pantalla
+- **Progreso en la lista de libros** — barra de progreso por libro directamente en `ListaLibros`, con polling propio
+- **Panel de admin simplificado** — el formulario siempre visible, el progreso vive en la lista
+- **Cancelación de libros** — botón para cancelar y borrar un libro completo durante el procesamiento
+- **Fix de borrado con claves foráneas** — función `_borrar_libro_completo` que borra en el orden correcto (`estado_parte_usuario` → `progreso_parte` → `progreso_usuario` → `partes` → `libro`)
+- **Un libro por motor** — Edge TTS y Coqui pueden procesar en paralelo; el botón se bloquea solo para el motor ocupado
+- **Metadatos de libros** — nuevas columnas en BBDD: `sinopsis`, `serie`, `anio`, `genero`, `editorial`, `isbn`
+- **Portadas** — subida manual de imagen, almacenamiento en disco local (`/app/portadas`), endpoint para servirlas
+- **Búsqueda con Open Library** — autocompletado de título, autor, año, editorial, ISBN, sinopsis y portada al buscar un libro
+- **Mapeo de géneros** — los subjects de Open Library se mapean automáticamente a los géneros predefinidos
+- **Género como desplegable** — lista predefinida de géneros en lugar de campo libre
+
+---
+
+### Cambios por archivo
+
+#### `vite.config.js`
+- Añadido proxy `/api` → `http://localhost:8000`
+- `host: '0.0.0.0'` para acceso desde red local
+
+#### `frontend/src/config.js`
+- `API = "/api"` en lugar de URL absoluta
+
+#### `backend/database.py`
+- Nuevas columnas en `Libro`: `sinopsis`, `serie`, `anio`, `genero`, `editorial`, `isbn`
+
+#### `backend/main.py`
+- `_borrar_libro_completo` — función auxiliar que borra en orden correcto respetando FK
+- Endpoint `/portadas` (POST) — recibe imagen y la guarda en `/app/portadas`
+- Endpoint `/portadas/{nombre}` (GET) — sirve imágenes de portada
+- Endpoint `/admin/procesando` — devuelve un proceso por proveedor (`edge`, `local`)
+- Endpoint `/admin/cancelar/{libro_id}` — revoca tareas Celery y borra todo
+- Endpoint `/libros/{libro_id}/progreso` — estado y porcentaje de cada parte
+- Endpoint `/libros` — ahora devuelve lista de partes con estado en lugar de conteo
+- `response_model=None` en todos los endpoints con `Depends(requerir_admin)`
+- `portada_url`, `sinopsis`, `serie`, `anio`, `genero`, `editorial`, `isbn` en `/convertir`
+
+#### `backend/tasks.py`
+- `parte.proveedor` se guarda al inicio del procesamiento (no solo al terminar)
+- `nueva_tarea.tarea_id` se guarda al encolar la siguiente parte
+
+#### `backend/auth.py`
+- `requerir_admin` usa `Depends(obtener_usuario_actual)` sin anotación de tipo `-> Usuario`
+
+#### `docker-compose.yml`
+- Volumen `portadas_data` montado en `/app/portadas` en el servicio `backend`
+
+#### `frontend/src/pages/admin/SubirPDF.jsx`
+- Buscador de Open Library con autocompletado
+- Mapeo automático de subjects a géneros predefinidos (`MAPEO_GENEROS`)
+- Selector de portada con preview, subida manual y opción de quitar
+- Género como `<select>` con lista predefinida (`GENEROS`)
+- Campos nuevos: serie, año, género, editorial, ISBN, sinopsis
+- Motor bloqueado si está procesando — polling cada 5 segundos con `useRef`
+
+#### `frontend/src/pages/admin/ListaLibros.jsx`
+- Polling propio cada 3 segundos mientras hay libros procesando
+- Barra de progreso por fila cuando el libro está en estado `procesando`
+- Puntitos de color real por estado de cada parte
+- Botón publicar deshabilitado si el libro no está completamente listo
+- Badge "Procesando" cuando hay partes en curso
+
+#### `frontend/src/pages/admin/AdminPage.jsx`
+- Eliminado el panel de progreso — simplificado a su versión original
+
+---
+
+### Migraciones Alembic aplicadas
+
+- `tarea_id en partes`
+- `metadatos libro` — sinopsis, serie, anio, genero, editorial, isbn
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Google Books API** — mejor cobertura que Open Library para libros en español, devuelve títulos traducidos, requiere API key gratuita en Google Cloud (ya tienes cuenta)
+- **Botón de cancelar** en la fila del libro en `ListaLibros` (actualmente solo existe via `/admin/cancelar`)
+- **Sistema de solicitudes** — formulario para que usuarios pidan libros, panel de admin para gestionarlas
+- **Marcar partes como escuchadas** desde `LibroPage`
+- **Lista de deseos** para usuarios
+- **Deploy en el mini PC** — Ubuntu Server, Docker, acceso desde red local
+
+---
+
+## Sesión 18 — Deploy en el mini PC
+
+### Lo que hemos construido
+
+- **Ubuntu Server 24.04 LTS** instalado en el mini PC
+- **Red configurada** con Netplan — interfaz `eno1` con DHCP permanente
+- **Docker 28.2.2** y **Docker Compose 1.29.2** instalados y configurados
+- **Usuario `wander` añadido al grupo docker** — no requiere `sudo` para comandos Docker
+- **Estructura de carpetas `~/apps/`** para alojar múltiples proyectos en el futuro
+- **Repositorio clonado** en `~/apps/kokito` via SSH con clave dedicada para GitHub
+- **Servicio systemd `kokito`** — los contenedores arrancan automáticamente al encender el mini PC
+- **Migraciones Alembic aplicadas** — todas las tablas creadas en PostgreSQL
+- **nginx** instalado para servir el frontend como build estática
+- **Frontend construido** con `npm run build` y servido desde `/home/wander/apps/kokito/frontend/dist`
+- **Dominio `wanderingcode.dev`** registrado en Cloudflare
+- **Cloudflare Tunnel `kokito`** configurado — acceso externo sin abrir puertos en el router
+- **`kokito.wanderingcode.dev`** accesible desde cualquier parte del mundo con HTTPS automático
+- **Servicio `cloudflared`** instalado como systemd — el tunnel arranca automáticamente
+
+---
+
+### Arquitectura resultante
+
+```
+Internet → Cloudflare Tunnel → nginx (puerto 80) → frontend (dist/)
+                                                  → /api/* → FastAPI (puerto 8000)
+                                                           → Celery worker
+                                                           → PostgreSQL
+                                                           → Redis
+```
+
+---
+
+### Comandos útiles en el mini PC
+
+```bash
+# Conectarse por SSH desde el Mac
+ssh wander@192.168.1.106
+
+# Ver estado de los servicios
+sudo systemctl status kokito
+sudo systemctl status cloudflared
+sudo systemctl status nginx
+
+# Ver logs de los contenedores
+cd ~/apps/kokito
+docker-compose logs --tail=50 backend
+docker-compose logs --tail=50 worker
+
+# Actualizar Kokito tras un git push
+cd ~/apps/kokito
+git pull
+docker-compose up --build -d
+
+# Reiniciar servicios
+sudo systemctl restart kokito
+sudo systemctl restart cloudflared
+sudo systemctl restart nginx
+```
+
+---
+
+### Pasos realizados
+
+#### 1. Instalación de Ubuntu Server
+
+- Instalado Ubuntu Server 24.04 LTS desde USB
+- Durante la instalación se configuró OpenSSH Server para acceso remoto
+- Usuario creado: `wander`, nombre del servidor: `miniserver`
+- Particionado automático en SSD Kingston de 111.79G con LVM
+
+#### 2. Configuración de red
+
+El adaptador wifi interno no fue detectado por el kernel — se usa cable ethernet.
+La interfaz `eno1` no obtenía IP automáticamente al arrancar. Se creó el archivo de configuración Netplan desde cero:
+
+```bash
+sudo nano /etc/netplan/00-network.yaml
+```
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    eno1:
+      dhcp4: true
+```
+
+```bash
+sudo netplan apply
+```
+
+#### 3. Conexión SSH desde el Mac
+
+```bash
+ssh wander@192.168.1.106
+```
+
+A partir de aquí todo se gestiona remotamente desde el Mac.
+
+#### 4. Actualización del sistema
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+#### 5. Instalación de Docker
+
+```bash
+sudo apt install -y docker.io
+sudo apt install -y docker-compose
+sudo usermod -aG docker wander
+sudo systemctl enable docker
+```
+
+Versiones instaladas: Docker 28.2.2, Docker Compose 1.29.2.
+
+#### 6. Clave SSH para GitHub
+
+```bash
+ssh-keygen -t ed25519 -C "miniserver-kokito" -f ~/.ssh/ssh-key-github
+```
+
+Clave pública añadida en GitHub → Settings → SSH and GPG keys con título `miniserver`.
+
+Configuración en `~/.ssh/config`:
+```
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/ssh-key-github
+```
+
+#### 7. Estructura de carpetas y clonado del repositorio
+
+```bash
+mkdir ~/apps
+cd ~/apps
+git clone git@github.com:wandering-code/kokito.git
+```
+
+#### 8. Archivo .env
+
+```bash
+nano ~/apps/kokito/backend/.env
+```
+
+Contiene únicamente `SECRET_KEY`.
+
+#### 9. Ajuste de docker-compose.yml
+
+Se eliminaron las referencias a las credenciales de Google Cloud del servicio `worker` ya que en el mini PC solo se usa Edge TTS y TTS local.
+
+#### 10. Primer arranque de Docker
+
+```bash
+cd ~/apps/kokito
+docker-compose up --build
+```
+
+#### 11. Servicio systemd para arranque automático
+
+```bash
+sudo tee /etc/systemd/system/kokito.service << 'EOF'
+[Unit]
+Description=Kokito
+Requires=docker.service
+After=docker.service
+
+[Service]
+WorkingDirectory=/home/wander/apps/kokito
+ExecStart=/usr/bin/docker-compose up
+ExecStop=/usr/bin/docker-compose down
+Restart=always
+User=wander
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable kokito
+sudo systemctl start kokito
+```
+
+#### 12. Migraciones de base de datos
+
+```bash
+sudo docker-compose exec backend alembic upgrade head
+```
+
+#### 13. Instalación de Node.js y build del frontend
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt install -y nodejs
+cd ~/apps/kokito/frontend
+npm install
+npm run build
+```
+
+#### 14. nginx para servir el frontend
+
+```bash
+sudo apt install -y nginx
+sudo nano /etc/nginx/sites-available/kokito
+```
+
+```nginx
+server {
+    listen 80;
+
+    location / {
+        root /home/wander/apps/kokito/frontend/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://localhost:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/kokito /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+**Problema de permisos:** nginx corre con el usuario `www-data` y no podía leer la carpeta home. Solución:
+
+```bash
+sudo chmod o+x /home/wander
+sudo chmod -R o+r /home/wander/apps/kokito/frontend/dist
+```
+
+#### 15. Dominio y Cloudflare Tunnel
+
+Dominio registrado: `wanderingcode.dev` en Cloudflare Registrar.
+
+```bash
+# Instalar cloudflared
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+sudo dpkg -i cloudflared.deb
+
+# Autenticarse
+cloudflared tunnel login
+
+# Crear tunnel
+cloudflared tunnel create kokito
+
+# Configurar
+sudo mkdir -p /etc/cloudflared
+sudo nano /etc/cloudflared/config.yml
+```
+
+```yaml
+tunnel: a586f040-3ef9-4e54-93fb-6fa68aeca374
+credentials-file: /etc/cloudflared/a586f040-3ef9-4e54-93fb-6fa68aeca374.json
+
+ingress:
+  - hostname: kokito.wanderingcode.dev
+    service: http://localhost:80
+  - service: http_status:404
+```
+
+```bash
+# Crear registro DNS
+cloudflared tunnel route dns kokito kokito.wanderingcode.dev
+
+# Instalar como servicio
+sudo cloudflared service install
+sudo systemctl start cloudflared
+```
+
+---
+
+### Errores encontrados
+
+**`dhclient` no encontrado** — Ubuntu Server moderno no incluye `dhclient`. Se resolvió creando el archivo Netplan manualmente.
+
+**Error 500 en nginx** — permisos insuficientes para que `www-data` accediera a la carpeta home. Solución: `chmod o+x /home/wander` y `chmod -R o+r` sobre la carpeta `dist`.
+
+**`cloudflared service install` no encontraba config.yml** — el archivo estaba en `~/.cloudflared/` pero el servicio busca en `/etc/cloudflared/`. Solución: copiar config y credenciales a `/etc/cloudflared/` y actualizar la ruta en el config.
+
+**Tabla `usuarios` no existe** — la base de datos arrancó vacía. Solución: ejecutar `alembic upgrade head` dentro del contenedor backend.
+
+**Archivos de voz no disponibles** — las voces predefinidas no estaban en el repositorio. Solución: copiar desde el Mac con `scp` y ajustar permisos de la carpeta `voces` (era propiedad de `root` por haberla creado Docker).
+
+---
+
+### Pendiente
+
+- **WiFi** — el adaptador wifi interno no fue detectado. De momento funciona con cable ethernet. Investigar driver en el futuro.
+- **IP fija local** — la IP `192.168.1.106` se asigna por DHCP y podría cambiar. Configurar IP fija en Netplan o reservar la IP en el router.
+- **Script de actualización** — automatizar `git pull` + `docker-compose up --build` para desplegar nuevas versiones cómodamente.
+- **Subdominios futuros** — para nuevas apps añadir entrada en `/etc/cloudflared/config.yml` y ejecutar `cloudflared tunnel route dns kokito nuevaapp.wanderingcode.dev`.

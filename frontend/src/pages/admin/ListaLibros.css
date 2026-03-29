@@ -90,3 +90,11 @@
   font-size: 10px; color: #8B6B00;
   white-space: nowrap; min-width: 28px;
 }
+
+.ll-btn-retry {
+  font-size: 11px; border: 1px solid rgba(163,51,51,0.3); border-radius: 6px;
+  padding: 4px 10px; background: transparent; color: #a33;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  transition: background 0.15s;
+}
+.ll-btn-retry:hover { background: rgba(163,51,51,0.08); }

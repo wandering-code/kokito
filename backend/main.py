@@ -28,9 +28,10 @@ app.add_middleware(
 )
 
 PORTADAS_DIR = "/app/portadas"
+PDFS_DIR = "/app/pdfs"
 
 def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
-    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url=""):
+    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="", ruta_pdf=""):
     # Calcular hash del contenido
     hash_contenido = hashlib.sha256(pdf_bytes).hexdigest()
 
@@ -62,7 +63,8 @@ def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
         genero=genero or None,
         editorial=editorial or None,
         isbn=isbn or None,
-        portada_url=portada_url or None
+        portada_url=portada_url or None,
+        ruta_pdf=ruta_pdf or None
     )
     db.add(libro)
     db.flush()  # Para obtener el libro.id sin hacer commit todavía
@@ -108,6 +110,12 @@ async def convertir(
     portada_url: str = Form(""),
 ):
     pdf_bytes = await pdf.read()
+    os.makedirs(PDFS_DIR, exist_ok=True)
+    nombre_pdf = f"{hashlib.md5(pdf_bytes).hexdigest()}.pdf"
+    ruta_pdf = os.path.join(PDFS_DIR, nombre_pdf)
+    with open(ruta_pdf, "wb") as f:
+        f.write(pdf_bytes)
+         
     db = SessionLocal()
 
     try:
@@ -115,7 +123,7 @@ async def convertir(
             pdf_bytes, titulo, autor, paginas_por_parte, db,
             sinopsis=sinopsis, serie=serie, anio=anio,
             genero=genero, editorial=editorial, isbn=isbn,
-            portada_url=portada_url
+            portada_url=portada_url, ruta_pdf=ruta_pdf
         )
 
         if not es_nuevo:
@@ -133,7 +141,7 @@ async def convertir(
         primera_parte = partes[0]
 
         voz_bytes = await voz.read() if voz else b""
-        tarea = convertir_pdf.delay(pdf_bytes, pdf.filename, proveedor, primera_parte.id, voz_bytes)
+        tarea = convertir_pdf.delay(proveedor, primera_parte.id, voz_bytes)
         primera_parte.tarea_id = tarea.id
         primera_parte.proveedor = proveedor
         # Actualizar estado de la primera parte a "procesando"
@@ -615,6 +623,34 @@ def cancelar_libro(libro_id: int, usuario=Depends(requerir_admin)):
     try:
         _borrar_libro_completo(libro_id, db)
         return {"ok": True}
+    finally:
+        db.close()
+
+@app.post("/admin/reintentar/{libro_id}", response_model=None)
+def reintentar_libro(libro_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        libro = db.query(Libro).filter(Libro.id == libro_id).first()
+        if not libro:
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
+
+        partes_fallidas = db.query(Parte).filter(
+            Parte.libro_id == libro_id,
+            Parte.estado.in_([EstadoParte.error, EstadoParte.pendiente])
+        ).order_by(Parte.numero_parte).all()
+
+        if not partes_fallidas:
+            raise HTTPException(status_code=400, detail="No hay partes pendientes o con error")
+
+        primera = partes_fallidas[0]
+        proveedor = primera.proveedor or "edge"
+
+        tarea = convertir_pdf.delay(proveedor, primera.id, b"")
+        primera.tarea_id = tarea.id
+        primera.estado = EstadoParte.procesando
+        db.commit()
+
+        return {"ok": True, "parte_id": primera.id, "tarea_id": tarea.id}
     finally:
         db.close()
 
