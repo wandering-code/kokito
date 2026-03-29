@@ -5,16 +5,15 @@ import AdminPage from "./pages/admin/AdminPage"
 import BibliotecaPage from "./pages/usuario/BibliotecaPage"
 import LibroPage from "./pages/usuario/LibroPage"
 import NavBar from "./components/NavBar"
+import RegistroPage from "./pages/RegistroPage"
+import AdminUsuariosPage from "./pages/admin/AdminUsuariosPage"
+import SpinnerGato from "./components/SpinnerGato"
 
 function RutaProtegida({ children }) {
   const { usuario, cargando } = useAuth()
 
   if (cargando) {
-    return (
-      <div className="spinner-global">
-        <div className="spinner-global-circulo" />
-      </div>
-    )
+    return <SpinnerGato />
   }
 
   if (!usuario) return <Navigate to="/login" />
@@ -39,11 +38,7 @@ export default function App() {
   const { usuario, cargando } = useAuth()
 
   if (cargando) {
-    return (
-      <div className="spinner-global">
-        <div className="spinner-global-circulo" />
-      </div>
-    )
+    return <SpinnerGato />
   }
 
   return (
@@ -54,19 +49,22 @@ export default function App() {
           : <LoginPage />
       } />
 
-      <Route path="/admin/libros" element={
-        <RutaProtegida>
-          <RutaAdmin>
-            <AdminPage />
-          </RutaAdmin>
-        </RutaProtegida>
+      <Route path="/registro" element={
+        usuario ? <Navigate to="/biblioteca" /> : <RegistroPage />
       } />
 
       <Route path="/admin/usuarios" element={
         <RutaProtegida>
           <RutaAdmin>
-            {/* AdminUsuariosPage — próxima sesión */}
-            <div>Usuarios</div>
+            <AdminUsuariosPage />
+          </RutaAdmin>
+        </RutaProtegida>
+      } />
+
+      <Route path="/admin/libros" element={
+        <RutaProtegida>
+          <RutaAdmin>
+            <AdminPage />
           </RutaAdmin>
         </RutaProtegida>
       } />

@@ -9,27 +9,23 @@ export default function NavBar() {
   const navigate = useNavigate()
   const location = useLocation()
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [adminMenuAbierto, setAdminMenuAbierto] = useState(false)
   const menuRef = useRef(null)
+  const adminMenuRef = useRef(null)
+  const adminMenuRefMovil = useRef(null)
 
   const esAdmin = usuario?.rol === "admin"
   const rutaActual = location.pathname
-  const [adminMenuAbierto, setAdminMenuAbierto] = useState(false)
-  const adminMenuRef = useRef(null)
 
-  // Cierra el menú si se hace click fuera
   useEffect(() => {
     function handleClickFuera(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuAbierto(false)
       }
-    }
-    document.addEventListener("mousedown", handleClickFuera)
-    return () => document.removeEventListener("mousedown", handleClickFuera)
-  }, [])
-
-  useEffect(() => {
-    function handleClickFuera(e) {
-      if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) {
+      if (
+        adminMenuRef.current && !adminMenuRef.current.contains(e.target) &&
+        (!adminMenuRefMovil.current || !adminMenuRefMovil.current.contains(e.target))
+      ) {
         setAdminMenuAbierto(false)
       }
     }
@@ -44,6 +40,11 @@ export default function NavBar() {
 
   function esRutaActiva(ruta) {
     return rutaActual.startsWith(ruta)
+  }
+
+  function navegarAdmin(ruta) {
+    setAdminMenuAbierto(false)
+    navigate(ruta)
   }
 
   return (
@@ -77,10 +78,10 @@ export default function NavBar() {
 
                 {adminMenuAbierto && (
                   <div className="navbar-menu">
-                    <button className="navbar-menu-item" onClick={() => { navigate("/admin/libros"); setAdminMenuAbierto(false) }}>
+                    <button className="navbar-menu-item" onMouseDown={() => navegarAdmin("/admin/libros")}>
                       Libros
                     </button>
-                    <button className="navbar-menu-item" onClick={() => { navigate("/admin/usuarios"); setAdminMenuAbierto(false) }}>
+                    <button className="navbar-menu-item" onMouseDown={() => navegarAdmin("/admin/usuarios")}>
                       Usuarios
                     </button>
                   </div>
@@ -101,7 +102,10 @@ export default function NavBar() {
             {menuAbierto && (
               <div className="navbar-menu">
                 <div className="navbar-menu-nombre">{usuario?.nombre}</div>
-                <button className="navbar-menu-salir" onClick={handleLogout}>
+                <button 
+                  className="navbar-menu-salir" 
+                  onMouseDown={(e) => { e.stopPropagation(); handleLogout() }}
+                >
                   <LogOut size={14} />
                   Cerrar sesión
                 </button>
@@ -118,23 +122,25 @@ export default function NavBar() {
           onClick={() => navigate("/biblioteca")}
         >
           <BookOpen size={22} />
+          <span>Biblioteca</span>
         </button>
 
         {esAdmin && (
-          <div className="navbar-bottom-item" ref={adminMenuRef}>
+          <div className="navbar-bottom-item" ref={adminMenuRefMovil}>
             <button
               className={`navbar-bottom-item-btn ${esRutaActiva("/admin") ? "navbar-bottom-item--activo" : ""}`}
               onClick={() => setAdminMenuAbierto(!adminMenuAbierto)}
             >
               <Settings size={22} />
+              <span>Admin</span>
             </button>
 
             {adminMenuAbierto && (
               <div className="navbar-menu navbar-menu--bottom">
-                <button className="navbar-menu-item" onClick={() => { navigate("/admin/libros"); setAdminMenuAbierto(false) }}>
+                <button className="navbar-menu-item" onClick={() => navegarAdmin("/admin/libros")}>
                   Libros
                 </button>
-                <button className="navbar-menu-item" onClick={() => { navigate("/admin/usuarios"); setAdminMenuAbierto(false) }}>
+                <button className="navbar-menu-item" onClick={() => navegarAdmin("/admin/usuarios")}>
                   Usuarios
                 </button>
               </div>
@@ -148,6 +154,7 @@ export default function NavBar() {
             onClick={() => setMenuAbierto(!menuAbierto)}
           >
             <User size={22} />
+            <span>Perfil</span>
           </button>
 
           {menuAbierto && (

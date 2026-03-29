@@ -1,0 +1,35 @@
+.sg-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(61, 43, 26, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sg-visible {
+  opacity: 1;
+}
+
+.sg-card {
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-border);
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 32px rgba(61, 43, 26, 0.15);
+  transform: translateY(8px);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sg-visible .sg-card {
+  transform: translateY(0);
+  opacity: 1;
+}
