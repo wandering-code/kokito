@@ -20,7 +20,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://192.168.1.94:5173"
+        "http://192.168.1.94:5173",
+        "https://kokito.wanderingcode.dev"
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -348,7 +349,7 @@ def login(email: str = Form(...), password: str = Form(...), response: Response 
             httponly=True,
             max_age=30 * 24 * 60 * 60,
             samesite="none",
-            secure=False
+            secure=True
         )
         return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
     finally:

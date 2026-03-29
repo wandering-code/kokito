@@ -1,23 +1,32 @@
 import { Routes, Route, Navigate } from "react-router-dom"
-import { useAuth } from "./AuthContext"
+import { useAuth } from "./context/AuthContext"
 import LoginPage from "./LoginPage"
 import AdminPage from "./pages/admin/AdminPage"
 import BibliotecaPage from "./pages/usuario/BibliotecaPage"
 import LibroPage from "./pages/usuario/LibroPage"
+import NavBar from "./components/NavBar"
 
 function RutaProtegida({ children }) {
   const { usuario, cargando } = useAuth()
 
   if (cargando) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="spinner-global">
+        <div className="spinner-global-circulo" />
       </div>
     )
   }
 
   if (!usuario) return <Navigate to="/login" />
-  return children
+
+  return (
+    <>
+      <NavBar />
+      <div className="contenido-principal">
+        {children}
+      </div>
+    </>
+  )
 }
 
 function RutaAdmin({ children }) {
@@ -31,8 +40,8 @@ export default function App() {
 
   if (cargando) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="spinner-global">
+        <div className="spinner-global-circulo" />
       </div>
     )
   }
@@ -40,13 +49,24 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={
-        usuario ? <Navigate to={usuario.rol === "admin" ? "/admin" : "/biblioteca"} /> : <LoginPage />
+        usuario
+          ? <Navigate to={usuario.rol === "admin" ? "/admin/libros" : "/biblioteca"} />
+          : <LoginPage />
       } />
 
-      <Route path="/admin/*" element={
+      <Route path="/admin/libros" element={
         <RutaProtegida>
           <RutaAdmin>
             <AdminPage />
+          </RutaAdmin>
+        </RutaProtegida>
+      } />
+
+      <Route path="/admin/usuarios" element={
+        <RutaProtegida>
+          <RutaAdmin>
+            {/* AdminUsuariosPage — próxima sesión */}
+            <div>Usuarios</div>
           </RutaAdmin>
         </RutaProtegida>
       } />
@@ -57,16 +77,16 @@ export default function App() {
         </RutaProtegida>
       } />
 
-      <Route path="/" element={
-        usuario
-          ? <Navigate to={usuario.rol === "admin" ? "/admin" : "/biblioteca"} />
-          : <Navigate to="/login" />
-      } />
-
       <Route path="/libro/:id" element={
         <RutaProtegida>
           <LibroPage />
         </RutaProtegida>
+      } />
+
+      <Route path="/" element={
+        usuario
+          ? <Navigate to={usuario.rol === "admin" ? "/admin/libros" : "/biblioteca"} />
+          : <Navigate to="/login" />
       } />
     </Routes>
   )

@@ -3042,3 +3042,24 @@ sudo systemctl start cloudflared
 - **IP fija local** — la IP `192.168.1.106` se asigna por DHCP y podría cambiar. Configurar IP fija en Netplan o reservar la IP en el router.
 - **Script de actualización** — automatizar `git pull` + `docker-compose up --build` para desplegar nuevas versiones cómodamente.
 - **Subdominios futuros** — para nuevas apps añadir entrada en `/etc/cloudflared/config.yml` y ejecutar `cloudflared tunnel route dns kokito nuevaapp.wanderingcode.dev`.
+
+---
+
+## Sesión 19 — Registro de usuarios, validación por admin y edición de libros (PRÓXIMA)
+
+### Lo que se va a tratar
+
+**1. Registro con validación manual (prioridad alta)**
+- El usuario puede registrarse libremente, pero no puede entrar hasta que el admin lo apruebe
+- Al registrarse, se envía un email automático al admin avisando del nuevo registro
+- El admin entra al panel → sección Usuarios → ve la info del usuario → acepta o rechaza
+- Solo los usuarios aceptados pueden hacer login
+
+**2. Edición de libro desde la vista de detalle (prioridad media)**
+- Si el usuario logado es admin, la vista de libro muestra un botón de edición
+- Permite modificar metadatos: título, autor, sinopsis, portada, género, etc.
+- Útil para corregir errores cometidos al subir el libro sin tener que borrarlo y volver a subirlo
+
+**3. Revisión del procesamiento por partes (prioridad pendiente de confirmar)**
+- Pendiente de verificar con un libro entero procesado en producción
+- Si hay fallos en el encadenamiento de partes o en el estado final, se atacará en esta sesión

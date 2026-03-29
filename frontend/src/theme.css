@@ -27,3 +27,35 @@ body {
   color: var(--cr-dark);
   -webkit-font-smoothing: antialiased;
 }
+
+.spinner-global {
+  min-height: 100vh;
+  background: var(--cr-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner-global-circulo {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--cr-warm);
+  border-top-color: var(--cr-brown);
+  border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+}
+
+@keyframes girar {
+  to { transform: rotate(360deg); }
+}
+
+.contenido-principal {
+  padding-top: 56px; /* altura de la navbar superior */
+}
+
+@media (max-width: 767px) {
+  .contenido-principal {
+    padding-top: 0;
+    padding-bottom: 64px; /* altura de la navbar inferior */
+  }
+}
