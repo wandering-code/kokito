@@ -119,6 +119,8 @@ async def convertir(
         f.write(pdf_bytes)
 
     ruta_voz = ""
+    voz_bytes = await voz.read() if voz else b""
+    
     if voz and voz_bytes:
         ext = voz.filename.rsplit(".", 1)[-1].lower()
         nombre_voz = f"{hashlib.md5(voz_bytes).hexdigest()}.{ext}"
@@ -150,7 +152,6 @@ async def convertir(
         partes = db.query(Parte).filter(Parte.libro_id == libro.id).order_by(Parte.numero_parte).all()
         primera_parte = partes[0]
 
-        voz_bytes = await voz.read() if voz else b""
         tarea = convertir_pdf.delay(proveedor, primera_parte.id, voz_bytes)
         primera_parte.tarea_id = tarea.id
         primera_parte.proveedor = proveedor
