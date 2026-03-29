@@ -55,6 +55,7 @@ class Libro(Base):
     editorial         = Column(String, nullable=True)
     isbn              = Column(String, nullable=True)
     ruta_pdf          = Column(String, nullable=True)
+    ruta_voz = Column(String, nullable=True)
 
     partes            = relationship("Parte", back_populates="libro")
 

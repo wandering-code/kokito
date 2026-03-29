@@ -31,7 +31,7 @@ PORTADAS_DIR = "/app/portadas"
 PDFS_DIR = "/app/pdfs"
 
 def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
-    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="", ruta_pdf=""):
+    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="", ruta_pdf="", ruta_voz=""):
     # Calcular hash del contenido
     hash_contenido = hashlib.sha256(pdf_bytes).hexdigest()
 
@@ -64,7 +64,8 @@ def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
         editorial=editorial or None,
         isbn=isbn or None,
         portada_url=portada_url or None,
-        ruta_pdf=ruta_pdf or None
+        ruta_pdf=ruta_pdf or None,
+        ruta_voz=ruta_voz or None
     )
     db.add(libro)
     db.flush()  # Para obtener el libro.id sin hacer commit todavía
@@ -115,6 +116,14 @@ async def convertir(
     ruta_pdf = os.path.join(PDFS_DIR, nombre_pdf)
     with open(ruta_pdf, "wb") as f:
         f.write(pdf_bytes)
+
+    ruta_voz = ""
+    if voz and voz_bytes:
+        ext = voz.filename.rsplit(".", 1)[-1].lower()
+        nombre_voz = f"{hashlib.md5(voz_bytes).hexdigest()}.{ext}"
+        ruta_voz = os.path.join(PDFS_DIR, nombre_voz)
+        with open(ruta_voz, "wb") as f:
+            f.write(voz_bytes)
          
     db = SessionLocal()
 
@@ -123,7 +132,7 @@ async def convertir(
             pdf_bytes, titulo, autor, paginas_por_parte, db,
             sinopsis=sinopsis, serie=serie, anio=anio,
             genero=genero, editorial=editorial, isbn=isbn,
-            portada_url=portada_url, ruta_pdf=ruta_pdf
+            portada_url=portada_url, ruta_pdf=ruta_pdf, ruta_voz=ruta_voz
         )
 
         if not es_nuevo:

@@ -1,3 +1,4 @@
+import os
 from celery_app import celery_app
 from database import SessionLocal, Parte, Libro, EstadoParte
 from tts.edge import process_file_with_edge
@@ -23,6 +24,11 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
 
     filename = libro.titulo
 
+    voz_bytes_final = voz_bytes
+    if not voz_bytes_final and libro.ruta_voz and os.path.exists(libro.ruta_voz):
+        with open(libro.ruta_voz, "rb") as f:
+            voz_bytes_final = f.read()
+
     try:
         parte.estado = EstadoParte.procesando
         parte.proveedor = proveedor
@@ -43,7 +49,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
             ruta_mp3 = process_file_with_local(
                 self, pdf_bytes, filename,
                 parte.pagina_inicio, parte.pagina_fin,
-                voz_bytes
+                voz_bytes_final
             )
         else:
             raise ValueError(f"Proveedor desconocido: {proveedor}")
@@ -60,7 +66,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
         ).order_by(Parte.numero_parte).first()
 
         if siguiente:
-            nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes)
+            nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)
             siguiente.tarea_id = nueva_tarea.id
             db.commit()
 
