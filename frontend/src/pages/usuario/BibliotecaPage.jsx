@@ -11,9 +11,9 @@ export default function BibliotecaPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [libros, setLibros]   = useState([])
+  const [libros, setLibros]     = useState([])
   const [progreso, setProgreso] = useState({})
-  const [vista, setVista]     = useState(
+  const [vista, setVista]       = useState(
     () => localStorage.getItem(VISTA_KEY) || "grid"
   )
 
@@ -21,17 +21,10 @@ export default function BibliotecaPage() {
     fetch(`${API}/libros/publicos`, { credentials: "include" })
       .then(r => r.json())
       .then(data => {
-        if (Array.isArray(data)) {
-          setLibros(data)
-        } else {
-          console.error("Respuesta inesperada de /libros/publicos:", data)
-          setLibros([])
-        }
+        if (Array.isArray(data)) setLibros(data)
+        else { console.error("Respuesta inesperada:", data); setLibros([]) }
       })
-      .catch(err => {
-        console.error("Error al cargar libros:", err)
-        setLibros([])
-      })
+      .catch(err => { console.error("Error al cargar libros:", err); setLibros([]) })
   }, [])
 
   useEffect(() => {
@@ -39,15 +32,18 @@ export default function BibliotecaPage() {
     libros.forEach(libro => {
       fetch(`${API}/progreso/${libro.id}`, { credentials: "include" })
         .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (data) setProgreso(p => ({ ...p, [libro.id]: data }))
-        })
+        .then(data => { if (data) setProgreso(p => ({ ...p, [libro.id]: data })) })
     })
   }, [libros])
 
   function cambiarVista(v) {
     setVista(v)
     localStorage.setItem(VISTA_KEY, v)
+  }
+
+  function esCompleto(libro) {
+    if (!Array.isArray(libro.partes) || libro.partes.length === 0) return true
+    return libro.partes.every(p => p.estado === "listo")
   }
 
   function estadoLibro(libro) {
@@ -69,8 +65,6 @@ export default function BibliotecaPage() {
 
   return (
     <div className="bib-root">
-
-      {/* Contenido */}
       <div className="bib-content">
 
         {/* Toolbar */}
@@ -109,7 +103,8 @@ export default function BibliotecaPage() {
         {libros.length > 0 && vista === "grid" && (
           <div className="bib-grid">
             {libros.map(libro => {
-              const estado = estadoLibro(libro)
+              const estado   = estadoLibro(libro)
+              const completo = esCompleto(libro)
               return (
                 <div key={libro.id} className="bib-card" onClick={() => irAlLibro(libro)}>
                   {libro.portada_url
@@ -119,11 +114,16 @@ export default function BibliotecaPage() {
                   <div className="bib-card-info">
                     <div className="bib-card-title">{libro.titulo}</div>
                     {libro.autor && <div className="bib-card-author">{libro.autor}</div>}
-                    <span className={`bib-badge ${estado}`}>
-                      {estado === "progreso" && "En progreso"}
-                      {estado === "nuevo" && "Nuevo"}
-                      {estado === "completado" && "Completado"}
-                    </span>
+                    <div className="bib-card-badges">
+                      <span className={`bib-badge ${estado}`}>
+                        {estado === "progreso"   && "En progreso"}
+                        {estado === "nuevo"      && "Nuevo"}
+                        {estado === "completado" && "Completado"}
+                      </span>
+                      {!completo && (
+                        <span className="bib-badge parcial">Incompleto</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -135,8 +135,9 @@ export default function BibliotecaPage() {
         {libros.length > 0 && vista === "list" && (
           <div className="bib-list">
             {libros.map(libro => {
-              const estado = estadoLibro(libro)
-              const pct    = porcentajeProgreso(libro)
+              const estado   = estadoLibro(libro)
+              const completo = esCompleto(libro)
+              const pct      = porcentajeProgreso(libro)
               return (
                 <div key={libro.id} className="bib-row" onClick={() => irAlLibro(libro)}>
                   <div className="bib-row-cover">
@@ -150,6 +151,7 @@ export default function BibliotecaPage() {
                     {libro.autor && <div className="bib-row-author">{libro.autor}</div>}
                     <div className="bib-row-meta">
                       {libro.num_paginas} páginas · {libro.partes} partes
+                      {!completo && <span className="bib-meta-parcial"> · En proceso</span>}
                     </div>
                     {estado === "progreso" && (
                       <div className="bib-row-prog">

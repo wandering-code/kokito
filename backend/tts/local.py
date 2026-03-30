@@ -2,42 +2,70 @@ import httpx
 import tempfile
 import os
 from database import SessionLocal, Conversion
+import re
 
 MP3_DIR = "/tmp/kokito"
-SERVIDOR_LOCAL = os.getenv("TTS_LOCAL_URL", "http://192.168.1.51:8001")
+SERVIDOR_LOCAL = os.getenv("TTS_LOCAL_URL", "http://192.168.1.143:8001")
 
-def dividir_texto_local(texto: str, max_chars: int = 500) -> list[str]:
-    import re
+def dividir_texto_local(texto: str, max_chars: int = 150) -> list[str]:
     frases = re.split(r'(?<=[.!?])\s+', texto.strip())
-    
+
     fragmentos = []
     actual = ""
 
     for frase in frases:
         if len(frase) > max_chars:
+            if actual:
+                fragmentos.append(actual.strip())
+                actual = ""
             partes = re.split(r'(?<=,)\s+', frase)
             for parte in partes:
                 if len(actual) + len(parte) + 1 <= max_chars:
                     actual = (actual + " " + parte).strip()
                 else:
                     if actual:
-                        fragmentos.append(actual)
+                        fragmentos.append(actual.strip())
                     actual = parte
         elif len(actual) + len(frase) + 1 <= max_chars:
             actual = (actual + " " + frase).strip()
         else:
             if actual:
-                fragmentos.append(actual)
+                fragmentos.append(actual.strip())
             actual = frase
 
     if actual:
-        fragmentos.append(actual)
+        fragmentos.append(actual.strip())
 
     return fragmentos
 
+def fusionar_frases_cortas(texto: str, min_palabras: int = 4) -> str:
+    """
+    Fusiona frases muy cortas con la siguiente para evitar artefactos de XTTS.
+    """
+    frases = re.split(r'(?<=[.!?])\s+', texto.strip())
+    resultado = []
+    pendiente = ""
+
+    for frase in frases:
+        if pendiente:
+            frase = pendiente + " " + frase
+            pendiente = ""
+        if len(frase.split()) < min_palabras:
+            pendiente = frase
+        else:
+            resultado.append(frase)
+
+    if pendiente:
+        if resultado:
+            resultado[-1] = resultado[-1] + " " + pendiente
+        else:
+            resultado.append(pendiente)
+
+    return " ".join(resultado)
+
 def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_fin=None, voz_bytes=b"") -> str:
     import pdfplumber
-    from tts.text_utils import limpiar_texto
+    from tts.text_utils import limpiar_texto_local
     from pydub import AudioSegment
 
     os.makedirs(MP3_DIR, exist_ok=True)
@@ -62,7 +90,8 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
 
     print(repr(text[800:2200]))
 
-    text = limpiar_texto(text)
+    text = limpiar_texto_local(text)
+    text = fusionar_frases_cortas(text)
 
     print(repr(text[800:2200]))
 
@@ -110,17 +139,22 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
             tmp.flush()
             segmentos.append(tmp.name)
 
-    audio_final = None
-    for ruta in segmentos:
-        try:
-            segmento = AudioSegment.from_file(ruta, format="wav")
-            if audio_final is None:
-                audio_final = segmento
-            else:
-                audio_final += segmento
-        except Exception as e:
-            print(f"Error leyendo fragmento {ruta}: {e}")
-            raise
+            from pydub import AudioSegment
+
+            SILENCIO_MS = 300
+            silencio = AudioSegment.silent(duration=SILENCIO_MS)
+
+            audio_final = None
+            for ruta in segmentos:
+                try:
+                    segmento = AudioSegment.from_file(ruta, format="wav")
+                    if audio_final is None:
+                        audio_final = segmento
+                    else:
+                        audio_final = audio_final + silencio + segmento
+                except Exception as e:
+                    print(f"Error leyendo fragmento {ruta}: {e}")
+                    raise
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
         tmp_mp3_path = tmp_mp3.name

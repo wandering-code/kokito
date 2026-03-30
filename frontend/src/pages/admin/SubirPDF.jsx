@@ -16,33 +16,19 @@ const GENEROS = [
 ]
 
 const MAPEO_GENEROS = {
-  "fantasy": "Fantasía",
-  "fantasia": "Fantasía",
-  "fantasía": "Fantasía",
-  "science fiction": "Ciencia ficción",
-  "ciencia ficcion": "Ciencia ficción",
-  "horror": "Terror",
-  "terror": "Terror",
-  "thriller": "Thriller / Suspense",
-  "suspense": "Thriller / Suspense",
+  "fantasy": "Fantasía", "fantasia": "Fantasía", "fantasía": "Fantasía",
+  "science fiction": "Ciencia ficción", "ciencia ficcion": "Ciencia ficción",
+  "horror": "Terror", "terror": "Terror",
+  "thriller": "Thriller / Suspense", "suspense": "Thriller / Suspense",
   "romance": "Romance",
-  "history": "Historia",
-  "historia": "Historia",
-  "biography": "Biografía / Autobiografía",
-  "biografia": "Biografía / Autobiografía",
-  "essays": "Ensayo",
-  "ensayo": "Ensayo",
-  "adventure": "Aventura",
-  "aventura": "Aventura",
-  "mystery": "Misterio / Policiaco",
-  "detective": "Misterio / Policiaco",
-  "policiaco": "Misterio / Policiaco",
-  "children": "Infantil / Juvenil",
-  "juvenile": "Infantil / Juvenil",
-  "infantil": "Infantil / Juvenil",
+  "history": "Historia", "historia": "Historia",
+  "biography": "Biografía / Autobiografía", "biografia": "Biografía / Autobiografía",
+  "essays": "Ensayo", "ensayo": "Ensayo",
+  "adventure": "Aventura", "aventura": "Aventura",
+  "mystery": "Misterio / Policiaco", "detective": "Misterio / Policiaco", "policiaco": "Misterio / Policiaco",
+  "children": "Infantil / Juvenil", "juvenile": "Infantil / Juvenil", "infantil": "Infantil / Juvenil",
   "humor": "Humor",
-  "self-help": "Autoayuda",
-  "autoayuda": "Autoayuda",
+  "self-help": "Autoayuda", "autoayuda": "Autoayuda",
 }
 
 function detectarGenero(subjects) {
@@ -56,40 +42,51 @@ function detectarGenero(subjects) {
   return ""
 }
 
-export default function SubirPDF({ onLibroSubido }) {
-  const [titulo, setTitulo]                   = useState("")
-  const [autor, setAutor]                     = useState("")
-  const [serie, setSerie]                     = useState("")
-  const [anio, setAnio]                       = useState("")
-  const [genero, setGenero]                   = useState("")
-  const [editorial, setEditorial]             = useState("")
-  const [isbn, setIsbn]                       = useState("")
-  const [sinopsis, setSinopsis]               = useState("")
-  const [paginasPorParte, setPaginasPorParte] = useState(50)
-  const [proveedor, setProveedor]             = useState("edge")
-  const [vozSeleccionada, setVozSeleccionada] = useState("voz_1")
-  const [vozArchivo, setVozArchivo]           = useState(null)
-  const [archivo, setArchivo]                 = useState(null)
-  const [error, setError]                     = useState(null)
+export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdicion }) {
+  const [titulo, setTitulo]                     = useState("")
+  const [autor, setAutor]                       = useState("")
+  const [serie, setSerie]                       = useState("")
+  const [anio, setAnio]                         = useState("")
+  const [genero, setGenero]                     = useState("")
+  const [editorial, setEditorial]               = useState("")
+  const [isbn, setIsbn]                         = useState("")
+  const [sinopsis, setSinopsis]                 = useState("")
+  const [paginasPorParte, setPaginasPorParte]   = useState(50)
+  const [proveedor, setProveedor]               = useState("edge")
+  const [vozSeleccionada, setVozSeleccionada]   = useState("voz_1")
+  const [vozArchivo, setVozArchivo]             = useState(null)
+  const [archivo, setArchivo]                   = useState(null)
+  const [error, setError]                       = useState(null)
   const [vozReproduciendo, setVozReproduciendo] = useState(null)
   const [proveedorOcupado, setProveedorOcupado] = useState(false)
-  const [busqueda, setBusqueda]           = useState("")
-  const [resultados, setResultados]       = useState([])
-  const [buscando, setBuscando]           = useState(false)
-  const [portadaUrl, setPortadaUrl] = useState("")
-  const [portadaPreview, setPortadaPreview] = useState("")
-  const audioActivo = useRef(null)
+  const [busqueda, setBusqueda]                 = useState("")
+  const [resultados, setResultados]             = useState([])
+  const [buscando, setBuscando]                 = useState(false)
+  const [portadaUrl, setPortadaUrl]             = useState("")
+  const [portadaPreview, setPortadaPreview]     = useState("")
+  const audioActivo  = useRef(null)
   const intervaloRef = useRef(null)
 
-  async function comprobarProveedor() {
-    try {
-      const res = await fetch(`${API}/admin/procesando`, { credentials: "include" })
-      const data = await res.json()
-      setProveedorOcupado(!!data.procesos[proveedor])
-    } catch (e) {
-      setProveedorOcupado(false)
+  // Autorrellenar cuando se recibe un libro a editar
+  useEffect(() => {
+    console.log("useEffect libroEditando:", libroEditando)
+    if (!libroEditando) {
+      resetear()
+      return
     }
-  }
+    setTitulo(libroEditando.titulo || "")
+    setAutor(libroEditando.autor || "")
+    setSerie(libroEditando.serie || "")
+    setAnio(libroEditando.anio || "")
+    setGenero(libroEditando.genero || "")
+    setEditorial(libroEditando.editorial || "")
+    setIsbn(libroEditando.isbn || "")
+    setSinopsis(libroEditando.sinopsis || "")
+    setPortadaUrl(libroEditando.portada_url || "")
+    setPortadaPreview(libroEditando.portada_url || "")
+    setArchivo(null)
+    setError(null)
+  }, [libroEditando])
 
   useEffect(() => {
     async function comprobarYPolling() {
@@ -115,6 +112,16 @@ export default function SubirPDF({ onLibroSubido }) {
     }
   }, [proveedor])
 
+  async function comprobarProveedor() {
+    try {
+      const res = await fetch(`${API}/admin/procesando`, { credentials: "include" })
+      const data = await res.json()
+      setProveedorOcupado(!!data.procesos[proveedor])
+    } catch (e) {
+      setProveedorOcupado(false)
+    }
+  }
+
   function reproducirVoz(vozId, e) {
     e.stopPropagation()
     if (audioActivo.current && audioActivo.current.src.endsWith(vozId)) {
@@ -138,9 +145,36 @@ export default function SubirPDF({ onLibroSubido }) {
   }
 
   async function handleSubmit() {
-    if (!archivo)       return setError("Selecciona un PDF")
     if (!titulo.trim()) return setError("El título es obligatorio")
     setError(null)
+
+    // MODO EDICIÓN
+    if (libroEditando) {
+      const fd = new FormData()
+      fd.append("titulo", titulo)
+      fd.append("autor", autor)
+      fd.append("serie", serie)
+      fd.append("anio", anio || "")
+      fd.append("genero", genero)
+      fd.append("editorial", editorial)
+      fd.append("isbn", isbn)
+      fd.append("sinopsis", sinopsis)
+      fd.append("portada_url", portadaUrl)
+
+      const res = await fetch(`${API}/libros/${libroEditando.id}/metadatos`, {
+        method: "PATCH", body: fd, credentials: "include"
+      })
+      if (res.ok) {
+        if (onLibroSubido) onLibroSubido()
+//        resetear()
+      } else {
+        setError("Error al guardar los cambios")
+      }
+      return
+    }
+
+    // MODO CREACIÓN
+    if (!archivo) return setError("Selecciona un PDF")
 
     const fd = new FormData()
     fd.append("pdf", archivo)
@@ -183,7 +217,7 @@ export default function SubirPDF({ onLibroSubido }) {
 
   function resetear() {
     setError(null)
-    setTitulo(""); setAutor(""); setSerie(""); setAnio("")
+    setTitulo(""); setAutor(""); setSerie(""); setAnio()
     setGenero(""); setEditorial(""); setIsbn(""); setSinopsis("")
     setArchivo(null); setVozArchivo(null)
     setVozSeleccionada("voz_1"); setProveedor("edge")
@@ -214,7 +248,6 @@ export default function SubirPDF({ onLibroSubido }) {
     setEditorial(libro.publisher?.[0] || "")
     setIsbn(libro.isbn?.[0] || "")
 
-    // Portada
     if (libro.cover_i) {
       const url = `https://covers.openlibrary.org/b/id/${libro.cover_i}-L.jpg`
       setPortadaUrl(url)
@@ -225,21 +258,15 @@ export default function SubirPDF({ onLibroSubido }) {
       setPortadaPreview(url)
     }
 
-    // Intentar género desde subjects de la búsqueda primero
     const generoInicial = detectarGenero(libro.subject)
     if (generoInicial) setGenero(generoInicial)
 
-    // Llamada al work para sinopsis y subjects más completos
     if (libro.key) {
       try {
         const res = await fetch(`https://openlibrary.org${libro.key}.json`)
         const work = await res.json()
-
-        // Sinopsis
         const desc = work.description
         if (desc) setSinopsis(typeof desc === "string" ? desc : desc.value || "")
-
-        // Subjects del work — más completos que los de la búsqueda
         if (!generoInicial) {
           const subjects = [
             ...(work.subjects || []),
@@ -260,7 +287,6 @@ export default function SubirPDF({ onLibroSubido }) {
     const file = e.target.files[0]
     if (!file) return
     setPortadaPreview(URL.createObjectURL(file))
-
     const fd = new FormData()
     fd.append("imagen", file)
     try {
@@ -274,6 +300,8 @@ export default function SubirPDF({ onLibroSubido }) {
 
   return (
     <div className="spdf-grid">
+
+      {/* Buscador — visible siempre, útil también al editar */}
       <div className="spdf-busqueda">
         <div className="spdf-busqueda-row">
           <input
@@ -292,21 +320,20 @@ export default function SubirPDF({ onLibroSubido }) {
             {buscando ? "Buscando…" : "Buscar"}
           </button>
         </div>
-
         {resultados.length > 0 && (
           <div className="spdf-resultados">
             {resultados.map((libro, i) => (
               <div key={i} className="spdf-resultado" onClick={() => seleccionarResultado(libro)}>
-              <div className="spdf-resultado-cover">
-                {libro.cover_i
-                  ? <img
-                      src={`https://covers.openlibrary.org/b/id/${libro.cover_i}-S.jpg`}
-                      alt=""
-                      onError={e => { e.target.style.display = "none" }}
-                    />
-                  : <div className="spdf-resultado-nocover" />
-                }
-              </div>
+                <div className="spdf-resultado-cover">
+                  {libro.cover_i
+                    ? <img
+                        src={`https://covers.openlibrary.org/b/id/${libro.cover_i}-S.jpg`}
+                        alt=""
+                        onError={e => { e.target.style.display = "none" }}
+                      />
+                    : <div className="spdf-resultado-nocover" />
+                  }
+                </div>
                 <div className="spdf-resultado-info">
                   <div className="spdf-resultado-titulo">{libro.title}</div>
                   <div className="spdf-resultado-meta">
@@ -319,6 +346,8 @@ export default function SubirPDF({ onLibroSubido }) {
           </div>
         )}
       </div>
+
+      {/* Campos de metadatos — siempre visibles */}
       <div className="spdf-row">
         <div className="spdf-field spdf-full">
           <label>Título</label>
@@ -338,18 +367,20 @@ export default function SubirPDF({ onLibroSubido }) {
       </div>
 
       <div className="spdf-row">
-        <div className="spdf-field">
-          <label>Año</label>
-          <input type="number" placeholder="Año de publicación" value={anio}
-            onChange={e => setAnio(e.target.value)} />
-        </div>
+      <div className="spdf-field">
+        <label>Año</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="Año de publicación"
+          value={anio || ""}
+          onChange={e => setAnio(e.target.value.replace(/\D/g, ""))}
+        />
+      </div>
         <div className="spdf-field">
           <label>Género</label>
-          <select
-            className="spdf-select"
-            value={genero}
-            onChange={e => setGenero(e.target.value)}
-          >
+          <select className="spdf-select" value={genero} onChange={e => setGenero(e.target.value)}>
             {GENEROS.map(g => (
               <option key={g} value={g}>{g || "Selecciona un género"}</option>
             ))}
@@ -403,96 +434,120 @@ export default function SubirPDF({ onLibroSubido }) {
         </div>
       </div>
 
-      <div className="spdf-row">
-        <div className="spdf-field">
-          <label>Páginas por parte</label>
-          <input type="number" value={paginasPorParte} min={10} max={200}
-            onChange={e => setPaginasPorParte(parseInt(e.target.value))} />
-        </div>
-      </div>
-
-      <div className="spdf-field">
-        <label>Motor de voz</label>
-        <div className="spdf-tts">
-          <button className={`spdf-tts-btn ${proveedor === "edge" ? "active" : ""}`}
-            onClick={() => setProveedor("edge")}>
-            Edge TTS
-          </button>
-          <button className={`spdf-tts-btn ${proveedor === "local" ? "active" : ""}`}
-            onClick={() => setProveedor("local")}>
-            Coqui (IA local)
-          </button>
-        </div>
-      </div>
-
-      {proveedor === "local" && (
-        <div className="spdf-coqui">
-          <div className="spdf-coqui-title">Voz</div>
-          <div className="spdf-voces">
-            {VOCES_PREDEFINIDAS.map(voz => (
-              <div
-                key={voz.id}
-                className={`spdf-voz ${!vozArchivo && vozSeleccionada === voz.id ? "selected" : ""}`}
-                onClick={() => { setVozSeleccionada(voz.id); setVozArchivo(null) }}
-              >
-                <div className="spdf-voz-name">{voz.nombre}</div>
-                <div className="spdf-voz-desc">{voz.descripcion}</div>
-                <button className="spdf-voz-play" onClick={e => reproducirVoz(voz.id, e)}>
-                  {vozReproduciendo === voz.id ? (
-                    <svg width="8" height="10" viewBox="0 0 8 10" fill="var(--cr-brown)">
-                      <rect x="0" y="0" width="2.5" height="10"/>
-                      <rect x="5.5" y="0" width="2.5" height="10"/>
-                    </svg>
-                  ) : (
-                    <svg width="8" height="10" viewBox="0 0 8 10" fill="var(--cr-brown)">
-                      <polygon points="0,0 8,5 0,10"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-            ))}
+      {/* Campos solo para creación */}
+      {!libroEditando && (
+        <>
+          <div className="spdf-row">
+            <div className="spdf-field">
+              <label>Páginas por parte</label>
+              <input type="number" value={paginasPorParte} min={10} max={200}
+                onChange={e => setPaginasPorParte(parseInt(e.target.value))} />
+            </div>
           </div>
-          <label className="spdf-voz-custom">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
-              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-              <circle cx="7" cy="5" r="2.5"/>
-              <path d="M2 12c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
-            </svg>
-            <span>{vozArchivo ? vozArchivo.name : "O sube tu propio archivo de voz (MP3 / WAV)"}</span>
-            <input type="file" accept=".mp3,.wav" style={{ display: "none" }}
-              onChange={e => { setVozArchivo(e.target.files[0]); setVozSeleccionada(null) }} />
-          </label>
-        </div>
-      )}
 
-      <label className={`spdf-drop ${archivo ? "con-archivo" : ""}`}>
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
-          stroke={archivo ? "var(--cr-green)" : "var(--cr-tan)"} strokeWidth="1.5" strokeLinecap="round">
-          <rect x="4" y="2" width="20" height="24" rx="3"/>
-          <line x1="8" y1="9"  x2="20" y2="9"/>
-          <line x1="8" y1="14" x2="20" y2="14"/>
-          <line x1="8" y1="19" x2="15" y2="19"/>
-        </svg>
-        {archivo
-          ? <span className="spdf-drop-nombre">{archivo.name}</span>
-          : <span className="spdf-drop-label"><strong style={{color:"var(--cr-brown)"}}>Selecciona un PDF</strong> o arrastra aquí</span>
-        }
-        <input type="file" accept=".pdf" style={{ display: "none" }}
-          onChange={e => setArchivo(e.target.files[0])} />
-      </label>
+          <div className="spdf-field">
+            <label>Motor de voz</label>
+            <div className="spdf-tts">
+              <button className={`spdf-tts-btn ${proveedor === "edge" ? "active" : ""}`}
+                onClick={() => setProveedor("edge")}>
+                Edge TTS
+              </button>
+              <button className={`spdf-tts-btn ${proveedor === "local" ? "active" : ""}`}
+                onClick={() => setProveedor("local")}>
+                Coqui (IA local)
+              </button>
+            </div>
+          </div>
+
+          {proveedor === "local" && (
+            <div className="spdf-coqui">
+              <div className="spdf-coqui-title">Voz</div>
+              <div className="spdf-voces">
+                {VOCES_PREDEFINIDAS.map(voz => (
+                  <div
+                    key={voz.id}
+                    className={`spdf-voz ${!vozArchivo && vozSeleccionada === voz.id ? "selected" : ""}`}
+                    onClick={() => { setVozSeleccionada(voz.id); setVozArchivo(null) }}
+                  >
+                    <div className="spdf-voz-name">{voz.nombre}</div>
+                    <div className="spdf-voz-desc">{voz.descripcion}</div>
+                    <button className="spdf-voz-play" onClick={e => reproducirVoz(voz.id, e)}>
+                      {vozReproduciendo === voz.id ? (
+                        <svg width="8" height="10" viewBox="0 0 8 10" fill="var(--cr-brown)">
+                          <rect x="0" y="0" width="2.5" height="10"/>
+                          <rect x="5.5" y="0" width="2.5" height="10"/>
+                        </svg>
+                      ) : (
+                        <svg width="8" height="10" viewBox="0 0 8 10" fill="var(--cr-brown)">
+                          <polygon points="0,0 8,5 0,10"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <label className="spdf-voz-custom">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                  stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                  <circle cx="7" cy="5" r="2.5"/>
+                  <path d="M2 12c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
+                </svg>
+                <span>{vozArchivo ? vozArchivo.name : "O sube tu propio archivo de voz (MP3 / WAV)"}</span>
+                <input type="file" accept=".mp3,.wav" style={{ display: "none" }}
+                  onChange={e => { setVozArchivo(e.target.files[0]); setVozSeleccionada(null) }} />
+              </label>
+            </div>
+          )}
+
+          <label className={`spdf-drop ${archivo ? "con-archivo" : ""}`}>
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
+              stroke={archivo ? "var(--cr-green)" : "var(--cr-tan)"} strokeWidth="1.5" strokeLinecap="round">
+              <rect x="4" y="2" width="20" height="24" rx="3"/>
+              <line x1="8" y1="9"  x2="20" y2="9"/>
+              <line x1="8" y1="14" x2="20" y2="14"/>
+              <line x1="8" y1="19" x2="15" y2="19"/>
+            </svg>
+            {archivo
+              ? <span className="spdf-drop-nombre">{archivo.name}</span>
+              : <span className="spdf-drop-label">
+                  <strong style={{color:"var(--cr-brown)"}}>Selecciona un PDF</strong> o arrastra aquí
+                </span>
+            }
+            <input type="file" accept=".pdf" style={{ display: "none" }}
+              onChange={e => setArchivo(e.target.files[0])} />
+          </label>
+        </>
+      )}
 
       {error && <p className="spdf-error">{error}</p>}
 
       <div className="spdf-actions">
-        <button className="spdf-btn-cancel" onClick={resetear}>Limpiar</button>
-        <button
-          className="spdf-btn-submit"
-          onClick={handleSubmit}
-          disabled={!archivo || proveedorOcupado}
-          title={proveedorOcupado ? `El motor ${proveedor} ya está procesando un libro` : ""}
-        >
-          {proveedorOcupado ? "Motor ocupado" : "Procesar libro"}
-        </button>
+        {libroEditando ? (
+          <>
+            <button className="spdf-btn-cancel" onClick={() => { resetear(); onCancelarEdicion() }}>
+              Cancelar
+            </button>
+            <button
+              className="spdf-btn-submit"
+              onClick={handleSubmit}
+              disabled={!titulo.trim()}
+            >
+              Guardar cambios
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="spdf-btn-cancel" onClick={resetear}>Limpiar</button>
+            <button
+              className="spdf-btn-submit"
+              onClick={handleSubmit}
+              disabled={!archivo || proveedorOcupado}
+              title={proveedorOcupado ? `El motor ${proveedor} ya está procesando un libro` : ""}
+            >
+              {proveedorOcupado ? "Motor ocupado" : "Procesar libro"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

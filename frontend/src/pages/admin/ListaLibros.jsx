@@ -10,9 +10,30 @@ function estadoPrincipal(partes) {
   return "parcial"
 }
 
-export default function ListaLibros({ refresh }) {
+function estadoBadge(libro) {
+  const estado = estadoPrincipal(libro.partes)
+  if (estado === "procesando") return "procesando"
+  if (libro.visible && estado === "listo") return "publicado"
+  if (libro.visible) return "publicado-parcial"
+  return "privado"
+}
+
+function hayError(partes) {
+  return Array.isArray(partes) && partes.some(p => p.estado === "error")
+}
+
+function CoverPlaceholder() {
+  return (
+    <svg width="20" height="28" viewBox="0 0 20 28" fill="none">
+      <rect x="1" y="1" width="18" height="26" rx="2"
+        fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1"/>
+    </svg>
+  )
+}
+
+export default function ListaLibros({ refresh, onEditar }) {
   const [libros, setLibros] = useState([])
-  const [progresos, setProgresos] = useState({}) // libro_id → porcentaje
+  const [progresos, setProgresos] = useState({})
 
   function cargarLibros() {
     fetch(`${API}/libros`, { credentials: "include" })
@@ -20,19 +41,16 @@ export default function ListaLibros({ refresh }) {
       .then(data => Array.isArray(data) ? setLibros(data) : setLibros([]))
   }
 
-  // Polling de progreso — solo mientras haya libros procesando
   useEffect(() => {
     const hayProcesando = libros.some(l => estadoPrincipal(l.partes) === "procesando")
     if (!hayProcesando) return
 
     const intervalo = setInterval(async () => {
-      // Recargar lista para actualizar estados de partes
       const res = await fetch(`${API}/libros`, { credentials: "include" })
       const data = await res.json()
       if (!Array.isArray(data)) return
       setLibros(data)
 
-      // Para cada libro procesando, consultar el porcentaje
       const nuevosProgresos = {}
       for (const libro of data) {
         if (estadoPrincipal(libro.partes) === "procesando") {
@@ -72,17 +90,6 @@ export default function ListaLibros({ refresh }) {
     cargarLibros()
   }
 
-  function estadoBadge(libro) {
-    const estado = estadoPrincipal(libro.partes)
-    if (estado === "procesando" || estado === "pendiente") return "procesando"
-    if (libro.visible) return "publicado"
-    return "privado"
-  }
-
-  function hayError(partes) {
-    return Array.isArray(partes) && partes.some(p => p.estado === "error")
-  }
-
   if (libros.length === 0) return (
     <p className="ll-empty">No hay libros en el sistema todavía</p>
   )
@@ -91,7 +98,8 @@ export default function ListaLibros({ refresh }) {
     <div className="ll-list">
       {libros.map(libro => {
         const estado = estadoPrincipal(libro.partes)
-        const estaListo = estado === "listo"
+        const tieneAlgunaLista = Array.isArray(libro.partes) && libro.partes.some(p => p.estado === "listo")
+        const estaListo = estado === "listo" || tieneAlgunaLista
         const badge = estadoBadge(libro)
         const porcentaje = progresos[libro.id] ?? 0
 
@@ -125,13 +133,37 @@ export default function ListaLibros({ refresh }) {
             </div>
             <div className="ll-actions">
               <span className={`ll-badge ${badge}`}>
-                {badge === "publicado" ? "Publicado" : badge === "procesando" ? "Procesando" : "Sin publicar"}
+                {badge === "publicado" ? "Publicado"
+                  : badge === "publicado-parcial" ? "Publicado (parcial)"
+                  : badge === "procesando" ? "Procesando"
+                  : "Sin publicar"}
               </span>
+              <button
+                className="ll-btn-edit"
+                onClick={async () => {
+                  const res = await fetch(`${API}/libros/${libro.id}`, { credentials: "include" })
+                  const data = await res.json()
+                  onEditar({
+                    id: data.id,
+                    titulo: data.titulo || "",
+                    autor: data.autor || "",
+                    serie: data.serie || "",
+                    anio: data.anio || "",
+                    genero: data.genero || "",
+                    editorial: data.editorial || "",
+                    isbn: data.isbn || "",
+                    sinopsis: data.sinopsis || "",
+                    portada_url: data.portada_url || ""
+                  })
+                }}
+              >
+                Editar
+              </button>
               <button
                 className="ll-btn-vis"
                 onClick={() => cambiarVisibilidad(libro.id, !libro.visible)}
                 disabled={!estaListo}
-                title={!estaListo ? "El libro aún no está listo" : ""}
+                title={!estaListo ? "El libro no tiene ninguna parte lista todavía" : ""}
               >
                 {libro.visible ? "Despublicar" : "Publicar"}
               </button>
@@ -152,14 +184,5 @@ export default function ListaLibros({ refresh }) {
         )
       })}
     </div>
-  )
-}
-
-function CoverPlaceholder() {
-  return (
-    <svg width="20" height="28" viewBox="0 0 20 28" fill="none">
-      <rect x="1" y="1" width="18" height="26" rx="2"
-        fill="rgba(139,107,74,0.15)" stroke="rgba(139,107,74,0.3)" strokeWidth="1"/>
-    </svg>
   )
 }

@@ -3290,3 +3290,48 @@ response.set_cookie(
 - **Botón de cancelar** en la fila del libro en `ListaLibros`
 - **Sistema de solicitudes** — formulario para que usuarios pidan libros
 - **SpinnerGato en más páginas** — `BibliotecaPage` y `LibroPage`
+
+---
+
+## Proveedores TTS descartados definitivamente
+
+- **Azure TTS Neural** — descartado. Requiere cuenta de pago activa solo por tenerla,
+  independientemente del consumo. No es una opción viable aunque la capa gratuita
+  sea generosa (5M chars/mes). No volver a sugerir.
+
+- **XTTS v2 (Coqui) para producción** — descartado. Calidad insuficiente en español
+  para audiolibros (gallos, artefactos, entonación incorrecta). Tiempos de procesado
+  inviables (~13-14 horas por libro en RTX 3070). El problema son limitaciones del
+  modelo, no de configuración.
+
+  ---
+
+## Sesión 20 — Pendiente al inicio
+
+### Funcionalidad: publicar libros incompletos
+Permitir publicar un libro aunque no todas sus partes estén procesadas.
+
+**Comportamiento:**
+- El admin puede publicar un libro con partes en `pendiente` o `procesando`
+- En la biblioteca, distinguir visualmente entre libros completos e incompletos
+- En la vista del libro, las partes en `listo` son reproducibles normalmente
+- Las partes en `pendiente` o `procesando` aparecen visualmente pero sin botón de reproducir
+- Cuando una parte termina, queda disponible automáticamente sin recargar
+
+**Archivos afectados probablemente:**
+- `backend/main.py` — quitar la restricción de publicar solo libros completos
+- `frontend/src/pages/admin/ListaLibros.jsx` — habilitar botón publicar aunque haya partes pendientes
+- `frontend/src/pages/usuario/BibliotecaPage.jsx` — badge o indicador de libro incompleto
+- `frontend/src/pages/usuario/LibroPage.jsx` — deshabilitar reproducción en partes no listas,
+  polling para detectar cuando una parte pasa a `listo`
+
+### Mejora visual: información del libro
+- Revisar qué campos no se están mostrando actualmente en la vista del libro
+- Mejorar la estética de la información que sí aparece
+- Afecta principalmente a `LibroPage.jsx` y `LibroPage.css`
+
+### Funcionalidad futura: capítulos por parte
+- Detectar automáticamente qué capítulos contiene cada parte al procesar el PDF
+- Mostrar en la lista de partes el rango de capítulos que cubre cada una
+- Requiere análisis de estructura del PDF en `main.py` al crear las partes
+- Afecta a `database.py` (nueva columna en `partes`), `tasks.py` y `LibroPage.jsx`

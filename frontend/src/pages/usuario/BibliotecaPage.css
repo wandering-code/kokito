@@ -246,3 +246,20 @@
   .bib-grid     { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
   .bib-toolbar  { margin-bottom: 20px; }
 }
+
+.bib-card-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.bib-badge.parcial {
+  background: rgba(196, 168, 130, 0.15);
+  color: var(--cr-tan);
+  border: 1px solid rgba(196, 168, 130, 0.3);
+}
+
+.bib-meta-parcial {
+  color: var(--cr-tan);
+}

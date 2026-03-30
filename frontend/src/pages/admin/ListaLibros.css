@@ -98,3 +98,24 @@
   transition: background 0.15s;
 }
 .ll-btn-retry:hover { background: rgba(163,51,51,0.08); }
+
+.ll-badge.publicado-parcial {
+  background: rgba(196, 168, 130, 0.15);
+  color: var(--cr-tan);
+  border-color: rgba(196, 168, 130, 0.3);
+}
+
+.ll-btn-edit {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--cr-border);
+  background: transparent;
+  color: var(--cr-brown);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ll-btn-edit:hover {
+  background: rgba(139, 107, 74, 0.08);
+}

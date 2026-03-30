@@ -9,7 +9,6 @@ export default function LibroPage() {
   const navigate     = useNavigate()
   const location     = useLocation()
   const { usuario, logout } = useAuth()
-  const modoAdmin    = location.state?.modoAdmin || false
 
   const [libro, setLibro]                   = useState(null)
   const [parteActiva, setParteActiva]       = useState(null)
@@ -20,10 +19,12 @@ export default function LibroPage() {
   const audioRef = useRef(null)
   const [progresoPorParte, setProgresoPorParte] = useState({})
 
-  useEffect(() => {
-    const fetchLibro = fetch(`${API}/libros/${id}`, { credentials: "include" })
-      .then(r => r.json())
+  function cargarLibro() {
+    return fetch(`${API}/libros/${id}`, { credentials: "include" }).then(r => r.json())
+  }
 
+  useEffect(() => {
+    const fetchLibro   = cargarLibro()
     const fetchProgreso = fetch(`${API}/progreso/libro/${id}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : { tiene_progreso: false, progreso_por_parte: {} })
       .catch(() => ({ tiene_progreso: false, progreso_por_parte: {} }))
@@ -53,7 +54,33 @@ export default function LibroPage() {
       .catch(err => console.error("Error al cargar libro:", err))
   }, [id])
 
-  // Posicionar el audio solo cuando hay un segundo guardado (progreso retomado)
+  // Polling — mientras haya partes no listas, refrescar estado cada 15 segundos
+  useEffect(() => {
+    if (!libro) return
+    const hayPendientes = libro.partes.some(
+      p => p.estado === "pendiente" || p.estado === "procesando"
+    )
+    if (!hayPendientes) return
+
+    const intervalo = setInterval(() => {
+      cargarLibro().then(libroData => {
+        if (!libroData || !libroData.partes) return
+        setLibro(libroData)
+
+        // Si la parte activa actual ha pasado a listo, no cambiarla
+        // Si no hay parte activa y ahora hay una lista, seleccionarla
+        setParteActiva(prev => {
+          if (prev) return prev
+          const primeraLista = libroData.partes.find(p => p.estado === "listo")
+          return primeraLista || null
+        })
+      })
+    }, 15000)
+
+    return () => clearInterval(intervalo)
+  }, [libro])
+
+  // Posicionar el audio cuando hay segundo guardado
   useEffect(() => {
     if (!audioRef.current || segundoInicial <= 0) return
     const handler = () => {
@@ -131,6 +158,11 @@ export default function LibroPage() {
     return `${m}:${ss.toString().padStart(2, "0")}`
   }
 
+  function esCompleto() {
+    if (!libro) return true
+    return libro.partes.every(p => p.estado === "listo")
+  }
+
   if (!libro) return (
     <div className="libro-loading">
       <div className="libro-spinner" />
@@ -152,7 +184,22 @@ export default function LibroPage() {
           <div className="libro-meta">
             <div className="libro-titulo">{libro.titulo}</div>
             {libro.autor && <div className="libro-autor">{libro.autor}</div>}
-            <div className="libro-stats">{libro.num_paginas} páginas · {libro.partes.length} partes</div>
+            {libro.serie && <div className="libro-serie">{libro.serie}</div>}
+            <div className="libro-tags">
+              {libro.genero && <span className="libro-tag">{libro.genero}</span>}
+              {libro.anio && <span className="libro-tag">{libro.anio}</span>}
+              {libro.editorial && <span className="libro-tag">{libro.editorial}</span>}
+            </div>
+            <div className="libro-stats">
+              {libro.num_paginas} páginas · {libro.partes.length} partes
+            </div>
+            {libro.isbn && <div className="libro-isbn">ISBN {libro.isbn}</div>}
+            {!esCompleto() && (
+              <div className="libro-incompleto">En proceso de conversión</div>
+            )}
+            {libro.sinopsis && (
+              <div className="libro-sinopsis">{libro.sinopsis}</div>
+            )}
           </div>
           <div className="libro-prog">
             <div className="libro-prog-label">Tu progreso</div>
@@ -232,13 +279,13 @@ export default function LibroPage() {
               </div>
             </div>
           ) : (
-            <div className="player-card" style={{ alignItems: "center", padding: "32px", color: "var(--cr-muted)", fontSize: "14px" }}>
+            <div className="player-card player-empty">
               No hay partes listas todavía
             </div>
           )}
 
           <div>
-            <div className="partes-header" style={{ marginBottom: "12px" }}>Partes</div>
+            <div className="partes-header">Partes</div>
             <div className="partes-list">
               {libro.partes.map(parte => {
                 const activa = parteActiva?.id === parte.id
@@ -265,11 +312,11 @@ export default function LibroPage() {
                       "badge-pendiente"
                     }`}>
                       {activa                        ? "▶ Reproduciendo" :
-                      parte.escuchada               ? "Escuchada"       :
-                      parte.estado === "listo"      ? "Listo"           :
-                      parte.estado === "procesando" ? "Procesando"      :
-                      parte.estado === "error"      ? "Error"           :
-                      "Pendiente"}
+                       parte.escuchada               ? "Escuchada"       :
+                       parte.estado === "listo"      ? "Listo"           :
+                       parte.estado === "procesando" ? "Procesando..."   :
+                       parte.estado === "error"      ? "Error"           :
+                       "Pendiente"}
                     </span>
                   </div>
                 )

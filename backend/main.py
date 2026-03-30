@@ -389,6 +389,40 @@ def cambiar_visibilidad(libro_id: int, visible: bool):
         db.close()
 
 
+@app.patch("/libros/{libro_id}/metadatos", response_model=None)
+async def actualizar_metadatos(
+    libro_id: int,
+    titulo: str = Form(...),
+    autor: str = Form(""),
+    serie: str = Form(""),
+    anio: str = Form(""),
+    genero: str = Form(""),
+    editorial: str = Form(""),
+    isbn: str = Form(""),
+    sinopsis: str = Form(""),
+    portada_url: str = Form(""),
+    usuario=Depends(requerir_admin)
+):
+    db = SessionLocal()
+    try:
+        libro = db.query(Libro).filter(Libro.id == libro_id).first()
+        if not libro:
+            raise HTTPException(status_code=404, detail="Libro no encontrado")
+        libro.titulo      = titulo
+        libro.autor       = autor or None
+        libro.serie       = serie or None
+        libro.anio        = int(anio) if anio and anio.strip() else None
+        libro.genero      = genero or None
+        libro.editorial   = editorial or None
+        libro.isbn        = isbn or None
+        libro.sinopsis    = sinopsis or None
+        libro.portada_url = portada_url or None
+        db.commit()
+        return {"ok": True, "id": libro.id}
+    finally:
+        db.close()
+
+
 @app.get("/partes/{parte_id}/audio")
 def audio_parte(parte_id: int):
     db = SessionLocal()
