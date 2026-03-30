@@ -3306,32 +3306,92 @@ response.set_cookie(
 
   ---
 
-## Sesión 20 — Pendiente al inicio
+## Sesión 20 — Mejoras de audio, edición de libros y ajustes de UI
 
-### Funcionalidad: publicar libros incompletos
-Permitir publicar un libro aunque no todas sus partes estén procesadas.
+### Lo que hemos construido
 
-**Comportamiento:**
-- El admin puede publicar un libro con partes en `pendiente` o `procesando`
-- En la biblioteca, distinguir visualmente entre libros completos e incompletos
-- En la vista del libro, las partes en `listo` son reproducibles normalmente
-- Las partes en `pendiente` o `procesando` aparecen visualmente pero sin botón de reproducir
-- Cuando una parte termina, queda disponible automáticamente sin recargar
+- **Servidor TTS mejorado** — limpieza automática de temporales, manejo de errores con `try/except`,
+  síntesis ejecutada en thread pool con `run_in_executor` para no bloquear el event loop
+- **Fragmentos reducidos a 220 caracteres** — eliminado el warning de truncado interno de XTTS
+  (`The text length exceeds the character limit of 239 for language 'es'`)
+- **`limpiar_texto_local` separado de `limpiar_texto`** — cada proveedor tiene su propio
+  preprocesado en `text_utils.py`
+- **Preprocesado específico para XTTS** — conserva `¿` y `¡`, mantiene guiones de diálogo,
+  convierte números a palabras, elimina notas del traductor, expande abreviaciones
+- **Saltos de línea en mitad de frase corregidos** — nuevo paso 3 en `limpiar_texto_local`
+  que colapsa saltos simples antes de cualquier otra transformación
+- **Regex de páginas mejorado** — caza tanto `Página 11` como `Página once`, y también
+  cuando va pegado a un guión (`Página once—`)
+- **Limpieza de páginas movida al inicio** — antes del colapso de saltos de línea para
+  evitar que `- Página once\n—Debería...` se fusione en `- Página once—Debería...`
+  antes de ser eliminado
+- **`dividir_texto_local` reescrito** — cuenta caracteres con límite de 220, corta siempre
+  en fin de frase respetando puntuación
+- **`fusionar_frases_cortas`** — fusiona frases de menos de 4 palabras con la siguiente
+  para evitar que XTTS las repita (artefacto con `—¡Nunca!` y similares)
+- **Silencio entre fragmentos** — 300ms de silencio al concatenar WAVs con pydub,
+  elimina el artefacto de sonido ininteligible en la unión entre fragmentos
+- **Publicar libros incompletos** — el admin puede publicar aunque haya partes pendientes
+- **Badge "Publicado (parcial)"** en `ListaLibros` cuando el libro está publicado pero incompleto
+- **Badge "Incompleto"** en `BibliotecaPage` para libros en proceso de conversión
+- **Polling en `LibroPage`** — cada 15 segundos refresca el estado de las partes mientras
+  hay pendientes, las partes listas aparecen automáticamente sin recargar
+- **Edición de metadatos de libros** — botón Editar en `ListaLibros`, formulario de
+  `SubirPDF` reutilizado en modo edición con campos autorellenados
+- **Endpoint `PATCH /libros/{id}/metadatos`** en el backend
+- **Campos ocultos en modo edición** — páginas por parte, motor de voz y zona de PDF
+  solo se muestran al crear un libro nuevo
+- **Información ampliada en `LibroPage`** — ahora muestra serie, género, año, editorial,
+  ISBN y sinopsis en la columna izquierda
+- **Favicon** — imagen de gato durmiendo sobre libros con fondo transparente
 
-**Archivos afectados probablemente:**
-- `backend/main.py` — quitar la restricción de publicar solo libros completos
-- `frontend/src/pages/admin/ListaLibros.jsx` — habilitar botón publicar aunque haya partes pendientes
-- `frontend/src/pages/usuario/BibliotecaPage.jsx` — badge o indicador de libro incompleto
-- `frontend/src/pages/usuario/LibroPage.jsx` — deshabilitar reproducción en partes no listas,
-  polling para detectar cuando una parte pasa a `listo`
+---
 
-### Mejora visual: información del libro
-- Revisar qué campos no se están mostrando actualmente en la vista del libro
-- Mejorar la estética de la información que sí aparece
-- Afecta principalmente a `LibroPage.jsx` y `LibroPage.css`
+### Proveedores TTS descartados definitivamente
 
-### Funcionalidad futura: capítulos por parte
-- Detectar automáticamente qué capítulos contiene cada parte al procesar el PDF
-- Mostrar en la lista de partes el rango de capítulos que cubre cada una
-- Requiere análisis de estructura del PDF en `main.py` al crear las partes
-- Afecta a `database.py` (nueva columna en `partes`), `tasks.py` y `LibroPage.jsx`
+- **Azure TTS Neural** — descartado. Requiere cuenta de pago activa solo por tenerla,
+  independientemente del consumo. No volver a sugerir.
+- **Google Standard / Neural2 / Chirp3 / Gemini TTS** — descartados. Voces sin
+  expresividad narrativa, "leen" en lugar de narrar.
+- **Cartesia** — descartado. Límite de 500 caracteres por petición, inviable para libros.
+- **ElevenLabs** — mejor calidad narrativa del mercado pero descartado por precio,
+  Kokito es uso personal gratuito para grupo de amigos.
+
+---
+
+### Archivos modificados
+
+**Backend:**
+- `backend/tts/text_utils.py` — `limpiar_texto_local`, `_numero_a_palabras`,
+  `_reemplazar_numeros`, `fusionar_frases_cortas`
+- `backend/tts/local.py` — `dividir_texto_local` reescrito, silencio entre fragmentos,
+  orden de llamadas actualizado
+- `backend/main.py` — nuevo endpoint `PATCH /libros/{id}/metadatos`
+- `C:\kokito-tts\server.py` — limpieza de temporales, `run_in_executor`, manejo de errores
+
+**Frontend:**
+- `frontend/src/pages/admin/ListaLibros.jsx` — botón Editar, badge publicado parcial,
+  botón publicar habilitado con partes parciales
+- `frontend/src/pages/admin/ListaLibros.css` — estilos de `.ll-btn-edit` y `.ll-badge.publicado-parcial`
+- `frontend/src/pages/admin/AdminPage.jsx` — estado `libroEditando`, paso de props a `SubirPDF`
+- `frontend/src/pages/admin/SubirPDF.jsx` — modo edición completo, `useEffect` de autorelleno,
+  campos ocultos en edición, botones diferenciados
+- `frontend/src/pages/usuario/BibliotecaPage.jsx` — badge "Incompleto", función `esCompleto`
+- `frontend/src/pages/usuario/BibliotecaPage.css` — estilos de `.bib-badge.parcial`
+- `frontend/src/pages/usuario/LibroPage.jsx` — polling de partes, información ampliada
+- `frontend/src/pages/usuario/LibroPage.css` — estilos de serie, tags, ISBN, sinopsis
+- `frontend/public/kokitin.png` — favicon nuevo
+- `frontend/index.html` — referencia al nuevo favicon
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Seguir probando y mejorando calidad de XTTS** — pendiente de feedback de audio
+  con los cambios de esta sesión (fragmentos más cortos, silencio entre fragmentos,
+  fusión de frases cortas)
+- **Mejora visual general** — revisión estética de información del libro y otras pantallas
+- **Sistema de solicitudes** — formulario para que usuarios pidan libros,
+  panel de admin para gestionarlas
+- **Capítulos por parte** (futuro) — detectar automáticamente qué capítulos contiene
+  cada parte al procesar el PDF
