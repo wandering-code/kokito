@@ -39,9 +39,6 @@ def dividir_texto_local(texto: str, max_chars: int = 150) -> list[str]:
     return fragmentos
 
 def fusionar_frases_cortas(texto: str, min_palabras: int = 4) -> str:
-    """
-    Fusiona frases muy cortas con la siguiente para evitar artefactos de XTTS.
-    """
     frases = re.split(r'(?<=[.!?])\s+', texto.strip())
     resultado = []
     pendiente = ""
@@ -139,22 +136,21 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
             tmp.flush()
             segmentos.append(tmp.name)
 
-            from pydub import AudioSegment
+    # Concatenación fuera del bucle
+    SILENCIO_MS = 300
+    silencio = AudioSegment.silent(duration=SILENCIO_MS)
 
-            SILENCIO_MS = 300
-            silencio = AudioSegment.silent(duration=SILENCIO_MS)
-
-            audio_final = None
-            for ruta in segmentos:
-                try:
-                    segmento = AudioSegment.from_file(ruta, format="wav")
-                    if audio_final is None:
-                        audio_final = segmento
-                    else:
-                        audio_final = audio_final + silencio + segmento
-                except Exception as e:
-                    print(f"Error leyendo fragmento {ruta}: {e}")
-                    raise
+    audio_final = None
+    for ruta in segmentos:
+        try:
+            segmento = AudioSegment.from_file(ruta, format="wav")
+            if audio_final is None:
+                audio_final = segmento
+            else:
+                audio_final = audio_final + silencio + segmento
+        except Exception as e:
+            print(f"Error leyendo fragmento {ruta}: {e}")
+            raise
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
         tmp_mp3_path = tmp_mp3.name
