@@ -3395,3 +3395,263 @@ response.set_cookie(
   panel de admin para gestionarlas
 - **Capítulos por parte** (futuro) — detectar automáticamente qué capítulos contiene
   cada parte al procesar el PDF
+
+---
+
+## Sesión 21 — EPUB, capítulos automáticos y revisión de ebook2audiobook
+
+### Objetivos de la sesión
+
+---
+
+### 1. Revisar ebook2audiobook
+
+Repositorio: https://github.com/DrewThomasson/ebook2audiobook
+
+Puntos concretos a revisar:
+
+- **Lógica de sentence splitting** — están en `lib/` del repositorio. Comparar con nuestra
+  `dividir_texto_local` y ver si tienen una solución mejor para el español, especialmente
+  para diálogos con guiones y frases cortas
+- **SML tags** — soportan `[break]`, `[pause]`, `[pause:N]` directamente en el texto.
+  Evaluar si podemos incorporar esto al preprocesado de Kokito para mejorar las pausas
+  en diálogos (el problema más frecuente con XTTS v2 actualmente)
+- **Modelos fine-tuned en español** — tienen una colección en Hugging Face:
+  `https://huggingface.co/drewThomasson/fineTunedTTSModels`
+  Buscar si hay algún modelo entrenado específicamente para castellano que mejore
+  la calidad o velocidad respecto al modelo base de XTTS v2
+- **Su motor TTS** — probar si su pipeline de XTTS v2 produce mejor calidad que el nuestro
+  con el mismo modelo y la misma voz de referencia. Si es mejor, ver qué hacen diferente
+
+---
+
+### 2. Probar el motor de ebook2audiobook en el sobremesa
+
+Instalación en Windows:
+```cmd
+git clone https://github.com/DrewThomasson/ebook2audiobook.git
+cd ebook2audiobook
+ebook2audiobook.cmd
+```
+
+Prueba básica con voz de referencia y un libro en español:
+```cmd
+ebook2audiobook.cmd --headless --ebook libro.epub --voice C:\kokito-tts\voz_elevenlabs_1.mp3 --language spa --device CUDA
+```
+
+Comparar el resultado con el audio generado por nuestro `server.py` actual con los mismos fragmentos.
+
+---
+
+### 3. Soporte de EPUB en Kokito
+
+**Motivación:** los PDFs no tienen estructura interna — hay que dividir por número de páginas
+arbitrario. Los EPUB tienen capítulos definidos explícitamente, lo que permite:
+- División natural por capítulos reales en lugar de bloques de N páginas
+- Mejor extracción de texto (sin números de página, cabeceras repetidas, etc.)
+- Cada parte = un capítulo → más intuitivo para el usuario en el reproductor
+
+**Librería a usar:** `ebooklib` — extrae capítulos de EPUB con su estructura original
+
+```bash
+pip install ebooklib beautifulsoup4
+```
+
+**Cambios necesarios en el backend:**
+
+- `main.py` — aceptar `.epub` además de `.pdf` en el endpoint `/convertir`
+- `database.py` — añadir campo `formato` en `libros` (`pdf` | `epub`)
+- `tasks.py` — detectar el formato y llamar al extractor correspondiente
+- Nueva función `extraer_capitulos_epub(epub_bytes)` → lista de `(titulo, texto)` por capítulo
+- La lógica de "páginas por parte" solo aplicaría a PDFs; para EPUBs cada capítulo es una parte
+
+**Cambios necesarios en el frontend:**
+
+- `SubirPDF.jsx` — cambiar el input de archivo para aceptar también `.epub`
+- Renombrar el campo "páginas por parte" a algo que solo aparezca si el archivo es PDF
+- Mostrar en `LibroPage` el título del capítulo en lugar de "Parte N · Páginas X-Y"
+
+**Estructura de partes para EPUB:**
+```
+Parte 1 → Capítulo 1: Prólogo
+Parte 2 → Capítulo 2: El Imperio Final
+Parte 3 → Capítulo 3: ...
+```
+
+---
+
+### Notas previas
+
+- Tener preparado al menos un libro en formato `.epub` para probar
+- Los EPUB de Sanderson (El Imperio Final, El Pozo de la Ascensión) están disponibles
+  en las mismas fuentes que los PDF
+- El campo "páginas por parte" perdería sentido para EPUB — pensar cómo manejarlo
+  en el formulario de subida sin romper la interfaz para PDFs
+
+---
+
+## Sesión 22 — Mejoras de UI en la vista de administración
+
+### Objetivo de la sesión
+
+Mejorar la vista de administración en móvil y escritorio, especialmente la sección
+"Libros en el sistema" (`ListaLibros`) y el formulario de nuevo libro (`SubirPDF`).
+
+---
+
+### Cambios aplicados en SubirPDF
+
+**Reorganización de campos en el formulario:**
+- Título ocupa fila completa
+- Autor / Serie en dos columnas
+- Año / Género en dos columnas (campos cortos, proporción 1 / 1.4)
+- Editorial / ISBN en dos columnas
+- En móvil todos los campos pasan a una sola columna
+
+**Nuevas clases CSS de grid:**
+- `.spdf-row` — dos columnas iguales (ya existía)
+- `.spdf-row-2-1` — dos columnas con proporción 1 / 1.4 (nueva)
+
+**Botones de acción en móvil:**
+- Se apilan en columna inversa (`flex-direction: column-reverse`)
+- Cada botón ocupa el ancho completo
+
+---
+
+### Cambios aplicados en ListaLibros
+
+**Nuevo layout de fila:**
+- La fila usa `flex-direction: column` en lugar de una fila horizontal plana
+- Zona superior (`ll-header`): portada + info en fila horizontal
+- Zona inferior (`ll-actions`): botones de acción ocupando todo el ancho
+- El badge de estado se integra junto al título en lugar de estar en la zona de acciones
+- Título con `white-space: normal` para que ocupe el ancho disponible en lugar de truncarse
+
+**En móvil:**
+- Los tres botones (Editar, Publicar/Despublicar, Eliminar) se muestran en un grid de tres columnas iguales
+- El botón de borrar muestra texto "Eliminar" en lugar de solo el icono de la X
+- Portada con dimensiones `50px × 82px` para acompañar mejor el bloque de texto
+
+**En escritorio:**
+- Los botones se muestran en fila horizontal con `display: flex`
+- El botón de borrar muestra solo el icono de la X, empujado a la derecha
+- El hover del botón de borrar se gestiona con estado React para evitar conflictos con el reset global de Tailwind (`*, ::before, ::after { border-style: solid }` sobreescribía `border: none`)
+
+---
+
+### Problema encontrado — conflicto con Tailwind
+
+El reset global de Tailwind aplica `border-style: solid` a todos los elementos,
+lo que hace que `border: none` no funcione correctamente en botones. Soluciones probadas:
+- `border-width: 0` — parcialmente efectivo
+- `style` inline en JSX — gana siempre a cualquier clase externa
+- Hover gestionado con estado React (`hoveredDel`) en lugar de CSS
+
+---
+
+### Pendiente
+
+- Vista de PC de `ListaLibros` pendiente de revisar — los botones de acción
+  en escritorio no quedaron del todo bien en esta sesión
+- Continuar con soporte de EPUB en la próxima sesión
+
+---
+
+## Sesión 23 — EPUB, mejoras de UI en administración y correcciones de motor
+
+### Lo que hemos construido
+
+- **Menú de tres puntos en móvil** en `ListaLibros` — botón `⋯` posicionado en la esquina
+  superior derecha de cada tarjeta, desplegable con Editar / Publicar / Eliminar
+- **Botones en columna derecha en escritorio** — tres botones apilados ocupando todo el alto
+  de la tarjeta, separados del contenido por una línea vertical
+- **Fix del polling de motor ocupado** — el `useEffect` ya no se destruye a sí mismo
+  al detectar que el motor quedó libre; el intervalo corre siempre mientras el componente
+  está montado
+- **Soporte de EPUB** — el sistema acepta archivos `.epub` además de `.pdf`:
+  - Detección automática de formato por extensión del archivo
+  - Extracción de capítulos desde la tabla de contenidos (TOC) con `ebooklib` y `beautifulsoup4`
+  - Cada capítulo del EPUB se convierte en una parte independiente
+  - Capítulos sin texto (portadas, imágenes) se marcan como `listo` automáticamente y se saltan
+  - Nuevo endpoint `POST /analizar-epub` — analiza el EPUB y devuelve la lista de capítulos
+    sin registrarlo en BBDD
+- **Selector de capítulo inicial para EPUB** — el admin elige desde qué capítulo empezar
+  a procesar; el sistema rota el orden: desde el capítulo elegido hasta el último, luego
+  del primero hasta el anterior al elegido
+- **Formulario de subida adaptativo** — detecta si el archivo es PDF o EPUB por extensión:
+  - PDF: muestra "Páginas por parte"
+  - EPUB: muestra selector de capítulo inicial con lista de títulos y número de palabras
+  - El botón de procesar se desactiva mientras se analiza el EPUB (`analizandoEpub`)
+- **Títulos de capítulo en el reproductor** — `LibroPage` muestra el `titulo_parte` del
+  capítulo en lugar de "Parte N · Páginas X-Y" cuando existe; para PDF mantiene el
+  comportamiento anterior
+- **`epub_utils.py`** — nuevo módulo en el backend con la función `extraer_capitulos_epub`:
+  - Lee el EPUB desde bytes via archivo temporal
+  - Recorre la TOC recursivamente respetando secciones anidadas
+  - Evita duplicados si la TOC apunta dos veces al mismo documento
+  - Normaliza hrefs (quita fragmentos `#ancla`)
+- **Nuevas columnas en BBDD**:
+  - `titulo_parte` en `partes` — título del capítulo tal como aparece en la TOC del EPUB
+  - `formato` en `libros` — `"pdf"` o `"epub"`, con `server_default="pdf"`
+- **`tasks.py` actualizado** — detecta el formato del libro y extrae el texto del capítulo
+  directamente en lugar de leer páginas del PDF; los capítulos sin texto se saltan
+  automáticamente encolando el siguiente
+- **`tts/edge.py` y `tts/local.py` actualizados** — aceptan parámetro `texto_directo`
+  para recibir el texto ya extraído en lugar de extraerlo del PDF
+
+---
+
+### Arquitectura del procesamiento EPUB
+```
+Admin sube EPUB
+  → frontend llama a POST /analizar-epub → devuelve lista de capítulos
+  → admin elige capítulo de inicio
+  → POST /convertir → analizar_y_registrar_libro crea partes rotadas:
+      [cap_inicio, cap_inicio+1, ..., último, 0, 1, ..., cap_inicio-1]
+  → se encola la parte con numero_parte=1 (= cap_inicio)
+  → worker extrae texto del capítulo via epub_utils
+  → si texto vacío → marcar listo, encolar siguiente
+  → si tiene texto → process_file_with_edge(texto_directo=texto_capitulo)
+  → al terminar → encolar siguiente parte pendiente
+```
+
+---
+
+### Problema encontrado — `ebooklib` no disponible en el worker
+
+`ebooklib` estaba instalado en el entorno virtual del Mac pero no dentro del contenedor
+Docker. Solución: `docker compose up --build` para reconstruir la imagen.
+
+### Problema encontrado — Celery no recarga módulos nuevos
+
+El worker Celery usa `ForkPoolWorker` — hace un fork del proceso principal al arrancar
+y no recarga módulos aunque el archivo cambie en disco. Síntomas:
+- `ModuleNotFoundError` aunque el archivo exista en `/app/`
+- Prints añadidos al código no aparecen en los logs
+
+Soluciones aplicadas:
+- `sys.path.insert(0, "/app")` en `celery_app.py` para que el worker encuentre módulos locales
+- `--pool=solo` en el comando del worker para desarrollo — evita el fork y recarga el código
+- Para producción: volver a `--pool=prefork` (por defecto) y hacer `docker compose restart worker`
+  cada vez que se cambie `tasks.py`
+
+### Problema encontrado — `texto_directo` no se pasaba al TTS
+
+El bloque `if formato == "epub"` extraía el texto pero no llamaba al TTS — faltaba el
+bloque `if proveedor == "edge"` dentro del `if formato == "epub"`. El código caía al
+`else` (PDF) sin texto. Solución: añadir el bloque de llamada al TTS dentro del bloque EPUB.
+
+---
+
+### Notas para próximas sesiones
+
+- **Calidad de audio EPUB con TTS local** — pendiente de probar. Es probable que
+  `limpiar_texto_local` necesite ajustes para texto de EPUB (más limpio que PDF,
+  sin números de página ni cabeceras). Si hace falta, crear `limpiar_texto_epub`
+  separada en `text_utils.py`
+- **Partes sin audio en el reproductor** — las partes con `ruta_mp3 = None` (portadas,
+  imágenes) aparecen como "listo" pero no tienen audio reproducible. Hay que ocultarlas
+  o marcarlas diferente en `LibroPage`
+- **Deploy en el mini PC** — actualizar con `git pull` + `docker compose up --build`
+  + `alembic upgrade head`
+- **Nota Safari** — la recarga forzada sin caché es **Cmd+Opt+R** (no Cmd+Shift+R como en Chrome)
