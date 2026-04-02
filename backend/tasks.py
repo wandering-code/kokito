@@ -17,12 +17,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
 
     if not libro or not libro.ruta_pdf:
         db.close()
-        raise ValueError("No se encontró el PDF del libro")
+        raise ValueError("No se encontró el archivo del libro")
 
     with open(libro.ruta_pdf, "rb") as f:
-        pdf_bytes = f.read()
+        archivo_bytes = f.read()
 
     filename = libro.titulo
+    formato = libro.formato or "pdf"
 
     voz_bytes_final = voz_bytes
     if not voz_bytes_final and libro.ruta_voz and os.path.exists(libro.ruta_voz):
@@ -30,29 +31,73 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
             voz_bytes_final = f.read()
 
     try:
+        ruta_mp3 = None
         parte.estado = EstadoParte.procesando
         parte.proveedor = proveedor
         db.commit()
 
-        if proveedor == "edge":
-            ruta_mp3 = process_file_with_edge(
-                self, pdf_bytes, filename,
-                parte.pagina_inicio, parte.pagina_fin
-            )
-        elif proveedor == "google":
-            ruta_mp3 = process_file_with_google(
-                self, pdf_bytes, filename,
-                parte.pagina_inicio, parte.pagina_fin
-            )
-        elif proveedor == "local":
-            from tts.local import process_file_with_local
-            ruta_mp3 = process_file_with_local(
-                self, pdf_bytes, filename,
-                parte.pagina_inicio, parte.pagina_fin,
-                voz_bytes_final
-            )
+        if formato == "epub":
+            from epub_utils import extraer_capitulos_epub
+            capitulos = extraer_capitulos_epub(archivo_bytes)
+            indice = parte.pagina_inicio
+            if indice >= len(capitulos):
+                raise ValueError(f"Índice de capítulo {indice} fuera de rango")
+            texto_capitulo = capitulos[indice]["texto"].strip()
+
+            if not texto_capitulo:
+                parte.estado = EstadoParte.listo
+                parte.ruta_mp3 = None
+                db.commit()
+                siguiente = db.query(Parte).filter(
+                    Parte.libro_id == parte.libro_id,
+                    Parte.estado == EstadoParte.pendiente
+                ).order_by(Parte.numero_parte).first()
+                if siguiente:
+                    nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)
+                    siguiente.tarea_id = nueva_tarea.id
+                    db.commit()
+                return ""
+
+            if proveedor == "edge":
+                ruta_mp3 = process_file_with_edge(
+                    self, None, filename,
+                    texto_directo=texto_capitulo
+                )
+            elif proveedor == "google":
+                ruta_mp3 = process_file_with_google(
+                    self, None, filename,
+                    texto_directo=texto_capitulo
+                )
+            elif proveedor == "local":
+                from tts.local import process_file_with_local
+                ruta_mp3 = process_file_with_local(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    voz_bytes=voz_bytes_final
+                )
+            else:
+                raise ValueError(f"Proveedor desconocido: {proveedor}")
+
         else:
-            raise ValueError(f"Proveedor desconocido: {proveedor}")
+            if proveedor == "edge":
+                ruta_mp3 = process_file_with_edge(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin
+                )
+            elif proveedor == "google":
+                ruta_mp3 = process_file_with_google(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin
+                )
+            elif proveedor == "local":
+                from tts.local import process_file_with_local
+                ruta_mp3 = process_file_with_local(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin,
+                    voz_bytes_final
+                )
+            else:
+                raise ValueError(f"Proveedor desconocido: {proveedor}")
 
         parte.estado = EstadoParte.listo
         parte.ruta_mp3 = ruta_mp3

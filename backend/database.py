@@ -55,7 +55,8 @@ class Libro(Base):
     editorial         = Column(String, nullable=True)
     isbn              = Column(String, nullable=True)
     ruta_pdf          = Column(String, nullable=True)
-    ruta_voz = Column(String, nullable=True)
+    ruta_voz          = Column(String, nullable=True)
+    formato           = Column(String, nullable=False, server_default="pdf")
 
     partes            = relationship("Parte", back_populates="libro")
 
@@ -74,6 +75,7 @@ class Parte(Base):
     duracion_segundos = Column(Integer, nullable=True)
     fecha_procesado   = Column(DateTime, nullable=True)
     tarea_id          = Column(String, nullable=True)
+    titulo_parte      = Column(String, nullable=True)
 
     libro             = relationship("Libro", back_populates="partes")
 

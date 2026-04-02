@@ -31,65 +31,99 @@ app.add_middleware(
 PORTADAS_DIR = "/app/portadas"
 PDFS_DIR = "/app/pdfs"
 
-def analizar_y_registrar_libro(pdf_bytes, titulo, autor, paginas_por_parte, db,
-    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="", ruta_pdf="", ruta_voz=""):
+def analizar_y_registrar_libro(archivo_bytes, titulo, autor, paginas_por_parte, db,
+    sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="",
+    ruta_pdf="", ruta_voz="", nombre_archivo="", capitulo_inicio=0):
+
+    # Detectar formato por extensión
+    formato = "epub" if nombre_archivo.lower().endswith(".epub") else "pdf"
+
     # Calcular hash del contenido
-    hash_contenido = hashlib.sha256(pdf_bytes).hexdigest()
+    hash_contenido = hashlib.sha256(archivo_bytes).hexdigest()
 
     # Comprobar si el libro ya existe
     libro_existente = db.query(Libro).filter(Libro.hash_contenido == hash_contenido).first()
     if libro_existente:
-        return libro_existente, False  # False = no es nuevo
+        return libro_existente, False
 
-    # Contar páginas
-    import pdfplumber, tempfile
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp_path = tmp.name
+    if formato == "epub":
+        from epub_utils import extraer_capitulos_epub
+        capitulos = extraer_capitulos_epub(archivo_bytes)
+        num_paginas = len(capitulos)
 
-    with pdfplumber.open(tmp_path) as pdf:
-        num_paginas = len(pdf.pages)
-
-    # Crear registro del libro
-    libro = Libro(
-        titulo=titulo,
-        autor=autor,
-        hash_contenido=hash_contenido,
-        num_paginas=num_paginas,
-        paginas_por_parte=paginas_por_parte,
-        visible=False,
-        sinopsis=sinopsis or None,
-        serie=serie or None,
-        anio=anio,
-        genero=genero or None,
-        editorial=editorial or None,
-        isbn=isbn or None,
-        portada_url=portada_url or None,
-        ruta_pdf=ruta_pdf or None,
-        ruta_voz=ruta_voz or None
-    )
-    db.add(libro)
-    db.flush()  # Para obtener el libro.id sin hacer commit todavía
-
-    # Crear registros de partes
-    pagina_actual = 0
-    numero_parte = 1
-    while pagina_actual < num_paginas:
-        pagina_fin = min(pagina_actual + paginas_por_parte - 1, num_paginas - 1)
-        parte = Parte(
-            libro_id=libro.id,
-            numero_parte=numero_parte,
-            pagina_inicio=pagina_actual,
-            pagina_fin=pagina_fin,
-            estado=EstadoParte.pendiente
+        libro = Libro(
+            titulo=titulo, autor=autor,
+            hash_contenido=hash_contenido,
+            num_paginas=num_paginas,
+            paginas_por_parte=1,
+            formato=formato,
+            visible=False,
+            sinopsis=sinopsis or None, serie=serie or None, anio=anio,
+            genero=genero or None, editorial=editorial or None,
+            isbn=isbn or None, portada_url=portada_url or None,
+            ruta_pdf=ruta_pdf or None, ruta_voz=ruta_voz or None
         )
-        db.add(parte)
-        pagina_actual += paginas_por_parte
-        numero_parte += 1
+        db.add(libro)
+        db.flush()
+
+        # Rotar los capítulos según el capítulo de inicio
+        inicio = max(0, min(capitulo_inicio, len(capitulos) - 1))
+        indices_rotados = list(range(inicio, len(capitulos))) + list(range(0, inicio))
+
+        for numero_parte, indice_cap in enumerate(indices_rotados, start=1):
+            cap = capitulos[indice_cap]
+            parte = Parte(
+                libro_id=libro.id,
+                numero_parte=numero_parte,
+                pagina_inicio=indice_cap,   # índice real del capítulo en el EPUB
+                pagina_fin=indice_cap,
+                titulo_parte=cap["titulo"] or None,
+                estado=EstadoParte.pendiente
+            )
+            db.add(parte)
+
+    else:
+        import pdfplumber, tempfile
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(archivo_bytes)
+            tmp_path = tmp.name
+
+        with pdfplumber.open(tmp_path) as pdf:
+            num_paginas = len(pdf.pages)
+
+        libro = Libro(
+            titulo=titulo, autor=autor,
+            hash_contenido=hash_contenido,
+            num_paginas=num_paginas,
+            paginas_por_parte=paginas_por_parte,
+            formato=formato,
+            visible=False,
+            sinopsis=sinopsis or None, serie=serie or None, anio=anio,
+            genero=genero or None, editorial=editorial or None,
+            isbn=isbn or None, portada_url=portada_url or None,
+            ruta_pdf=ruta_pdf or None, ruta_voz=ruta_voz or None
+        )
+        db.add(libro)
+        db.flush()
+
+        pagina_actual = 0
+        numero_parte = 1
+        while pagina_actual < num_paginas:
+            pagina_fin = min(pagina_actual + paginas_por_parte - 1, num_paginas - 1)
+            parte = Parte(
+                libro_id=libro.id,
+                numero_parte=numero_parte,
+                pagina_inicio=pagina_actual,
+                pagina_fin=pagina_fin,
+                estado=EstadoParte.pendiente
+            )
+            db.add(parte)
+            pagina_actual += paginas_por_parte
+            numero_parte += 1
 
     db.commit()
     db.refresh(libro)
-    return libro, True  # True = es nuevo
+    return libro, True
 
 @app.get("/health_check")
 def health_check():
@@ -110,32 +144,36 @@ async def convertir(
     editorial: str = Form(""),
     isbn: str = Form(""),
     portada_url: str = Form(""),
+    capitulo_inicio: int = Form(0),
 ):
-    pdf_bytes = await pdf.read()
+    archivo_bytes = await pdf.read()
+    nombre_archivo = pdf.filename or ""
+    formato = "epub" if nombre_archivo.lower().endswith(".epub") else "pdf"
+
     os.makedirs(PDFS_DIR, exist_ok=True)
-    nombre_pdf = f"{hashlib.md5(pdf_bytes).hexdigest()}.pdf"
-    ruta_pdf = os.path.join(PDFS_DIR, nombre_pdf)
+    ext_archivo = "epub" if formato == "epub" else "pdf"
+    nombre_guardado = f"{hashlib.md5(archivo_bytes).hexdigest()}.{ext_archivo}"
+    ruta_pdf = os.path.join(PDFS_DIR, nombre_guardado)
     with open(ruta_pdf, "wb") as f:
-        f.write(pdf_bytes)
+        f.write(archivo_bytes)
 
     ruta_voz = ""
     voz_bytes = await voz.read() if voz else b""
-    
     if voz and voz_bytes:
         ext = voz.filename.rsplit(".", 1)[-1].lower()
         nombre_voz = f"{hashlib.md5(voz_bytes).hexdigest()}.{ext}"
         ruta_voz = os.path.join(PDFS_DIR, nombre_voz)
         with open(ruta_voz, "wb") as f:
             f.write(voz_bytes)
-         
-    db = SessionLocal()
 
+    db = SessionLocal()
     try:
         libro, es_nuevo = analizar_y_registrar_libro(
-            pdf_bytes, titulo, autor, paginas_por_parte, db,
+            archivo_bytes, titulo, autor, paginas_por_parte, db,
             sinopsis=sinopsis, serie=serie, anio=anio,
             genero=genero, editorial=editorial, isbn=isbn,
-            portada_url=portada_url, ruta_pdf=ruta_pdf, ruta_voz=ruta_voz
+            portada_url=portada_url, ruta_pdf=ruta_pdf, ruta_voz=ruta_voz,
+            nombre_archivo=nombre_archivo, capitulo_inicio=capitulo_inicio
         )
 
         if not es_nuevo:
@@ -148,15 +186,22 @@ async def convertir(
                 "partes": [{"id": p.id, "numero_parte": p.numero_parte, "estado": p.estado} for p in partes]
             }
 
-        # Encolar solo la primera parte
-        partes = db.query(Parte).filter(Parte.libro_id == libro.id).order_by(Parte.numero_parte).all()
-        primera_parte = partes[0]
+        partes = db.query(Parte).filter(
+            Parte.libro_id == libro.id
+        ).order_by(Parte.numero_parte).all()
 
-        tarea = convertir_pdf.delay(proveedor, primera_parte.id, voz_bytes)
-        primera_parte.tarea_id = tarea.id
-        primera_parte.proveedor = proveedor
-        # Actualizar estado de la primera parte a "procesando"
-        primera_parte.estado = EstadoParte.procesando
+        # Determinar qué parte encolar primero
+        # Para EPUB: empezar desde capitulo_inicio (índice base 0)
+        # Para PDF: siempre desde la primera parte
+        if formato == "epub" and 0 < capitulo_inicio < len(partes):
+            parte_inicio = partes[capitulo_inicio]
+        else:
+            parte_inicio = partes[0]
+
+        tarea = convertir_pdf.delay(proveedor, parte_inicio.id, voz_bytes)
+        parte_inicio.tarea_id = tarea.id
+        parte_inicio.proveedor = proveedor
+        parte_inicio.estado = EstadoParte.procesando
         db.commit()
 
         return {
@@ -166,7 +211,8 @@ async def convertir(
             "num_paginas": libro.num_paginas,
             "total_partes": len(partes),
             "tarea_id": tarea.id,
-            "parte_id": primera_parte.id
+            "parte_id": parte_inicio.id,
+            "formato": formato
         }
 
     finally:
@@ -292,6 +338,7 @@ def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
                     "numero_parte": p.numero_parte,
                     "pagina_inicio": p.pagina_inicio,
                     "pagina_fin": p.pagina_fin,
+                    "titulo_parte": p.titulo_parte,
                     "estado": p.estado,
                     "duracion_segundos": p.duracion_segundos,
                     "escuchada": p.id in escuchadas,
@@ -905,3 +952,14 @@ def borrar_usuario(usuario_id: int, usuario=Depends(requerir_admin)):
         return {"ok": True}
     finally:
         db.close()
+
+
+@app.post("/analizar-epub")
+async def analizar_epub(epub: UploadFile = File(...), usuario=Depends(requerir_admin)):
+    epub_bytes = await epub.read()
+    from epub_utils import extraer_capitulos_epub
+    capitulos = extraer_capitulos_epub(epub_bytes)
+    return [
+        {"indice": i, "titulo": c["titulo"], "palabras": c["palabras"]}
+        for i, c in enumerate(capitulos)
+    ]

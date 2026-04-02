@@ -60,37 +60,37 @@ def fusionar_frases_cortas(texto: str, min_palabras: int = 4) -> str:
 
     return " ".join(resultado)
 
-def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_fin=None, voz_bytes=b"") -> str:
-    import pdfplumber
+def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_fin=None, voz_bytes=b"", texto_directo=None) -> str:
     from tts.text_utils import limpiar_texto_local
     from pydub import AudioSegment
 
     os.makedirs(MP3_DIR, exist_ok=True)
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-        tmp_pdf.write(pdf_bytes)
-        tmp_pdf_path = tmp_pdf.name
+    if texto_directo is not None:
+        text = texto_directo
+        total = 1
+        self.update_state(state="PROGRESS", meta={"pagina": 1, "total": 1})
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+            tmp_pdf.write(pdf_bytes)
+            tmp_pdf_path = tmp_pdf.name
 
-    with pdfplumber.open(tmp_pdf_path) as file:
-        text = ""
-        fin = (pagina_fin + 1) if pagina_fin is not None else None
-        paginas = file.pages[pagina_inicio:fin]
-        total = len(paginas)
-        for i, page in enumerate(paginas):
-            texto_pagina = page.extract_text()
-            if texto_pagina:
-                text += texto_pagina
-            self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
+        with pdfplumber.open(tmp_pdf_path) as file:
+            text = ""
+            fin = (pagina_fin + 1) if pagina_fin is not None else None
+            paginas = file.pages[pagina_inicio:fin]
+            total = len(paginas)
+            for i, page in enumerate(paginas):
+                texto_pagina = page.extract_text()
+                if texto_pagina:
+                    text += texto_pagina
+                self.update_state(state="PROGRESS", meta={"pagina": i + 1, "total": total})
 
     if not text:
-        raise ValueError("El PDF no contiene texto extraíble")
-
-    print(repr(text[800:2200]))
+        raise ValueError("El texto está vacío")
 
     text = limpiar_texto_local(text)
     text = fusionar_frases_cortas(text)
-
-    print(repr(text[800:2200]))
 
     if not text.strip():
         raise ValueError("El texto quedó vacío tras la limpieza")
@@ -105,10 +105,6 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
             "pagina": total, "total": total,
             "porcentaje_override": porcentaje
         })
-
-        print(f"--- Fragmento {i+1}/{total_fragmentos} ---")
-        print(fragmento[:200])
-        print("---")
 
         MAX_INTENTOS = 3
         for intento in range(MAX_INTENTOS):
@@ -128,29 +124,17 @@ def process_file_with_local(self, pdf_bytes, filename, pagina_inicio=0, pagina_f
                 import time
                 time.sleep(5)
 
-        print(f"Content-Type recibido: {response.headers.get('content-type')}")
-        print(f"Tamaño respuesta: {len(response.content)} bytes")
-
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=MP3_DIR) as tmp:
             tmp.write(response.content)
             tmp.flush()
             segmentos.append(tmp.name)
 
-    # Concatenación fuera del bucle
     SILENCIO_MS = 300
     silencio = AudioSegment.silent(duration=SILENCIO_MS)
-
     audio_final = None
     for ruta in segmentos:
-        try:
-            segmento = AudioSegment.from_file(ruta, format="wav")
-            if audio_final is None:
-                audio_final = segmento
-            else:
-                audio_final = audio_final + silencio + segmento
-        except Exception as e:
-            print(f"Error leyendo fragmento {ruta}: {e}")
-            raise
+        segmento = AudioSegment.from_file(ruta, format="wav")
+        audio_final = segmento if audio_final is None else audio_final + silencio + segmento
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=MP3_DIR) as tmp_mp3:
         tmp_mp3_path = tmp_mp3.name

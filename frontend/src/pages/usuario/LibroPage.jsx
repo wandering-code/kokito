@@ -223,7 +223,7 @@ export default function LibroPage() {
               <div>
                 <div className="player-label">Reproduciendo ahora</div>
                 <div className="player-title">
-                  Parte {parteActiva.numero_parte} · Páginas {parteActiva.pagina_inicio + 1}–{parteActiva.pagina_fin + 1}
+                  {parteActiva.titulo_parte || `Parte ${parteActiva.numero_parte}`}
                 </div>
               </div>
 
@@ -298,10 +298,14 @@ export default function LibroPage() {
                   >
                     <div className="parte-num">{parte.numero_parte}</div>
                     <div className="parte-info">
-                      <div className="parte-nombre">Parte {parte.numero_parte}</div>
-                      <div className="parte-pages">
-                        Páginas {parte.pagina_inicio + 1}–{parte.pagina_fin + 1}
+                      <div className="parte-nombre">
+                        {parte.titulo_parte || `Parte ${parte.numero_parte}`}
                       </div>
+                      {!parte.titulo_parte && (
+                        <div className="parte-pages">
+                          Páginas {parte.pagina_inicio + 1}–{parte.pagina_fin + 1}
+                        </div>
+                      )}
                     </div>
                     <span className={`parte-badge ${
                       activa                        ? "badge-active"     :

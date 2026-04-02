@@ -1,5 +1,7 @@
 from celery import Celery
 import os
+import sys
+sys.path.insert(0, "/app")
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 

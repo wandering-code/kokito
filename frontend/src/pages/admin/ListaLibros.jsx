@@ -34,6 +34,8 @@ function CoverPlaceholder() {
 export default function ListaLibros({ refresh, onEditar }) {
   const [libros, setLibros] = useState([])
   const [progresos, setProgresos] = useState({})
+  const [hoveredDel, setHoveredDel] = useState(null)
+  const [menuAbierto, setMenuAbierto] = useState(null)
 
   function cargarLibros() {
     fetch(`${API}/libros`, { credentials: "include" })
@@ -70,6 +72,13 @@ export default function ListaLibros({ refresh, onEditar }) {
 
   useEffect(() => { cargarLibros() }, [refresh])
 
+  useEffect(() => {
+    if (menuAbierto === null) return
+    function cerrar() { setMenuAbierto(null) }
+    document.addEventListener("mousedown", cerrar)
+    return () => document.removeEventListener("mousedown", cerrar)
+  }, [menuAbierto])
+
   async function cambiarVisibilidad(id, visible) {
     await fetch(`${API}/libros/${id}/visible?visible=${visible}`, {
       method: "PATCH", credentials: "include"
@@ -90,6 +99,23 @@ export default function ListaLibros({ refresh, onEditar }) {
     cargarLibros()
   }
 
+  async function abrirEditar(libroId) {
+    const res = await fetch(`${API}/libros/${libroId}`, { credentials: "include" })
+    const data = await res.json()
+    onEditar({
+      id: data.id,
+      titulo: data.titulo || "",
+      autor: data.autor || "",
+      serie: data.serie || "",
+      anio: data.anio || "",
+      genero: data.genero || "",
+      editorial: data.editorial || "",
+      isbn: data.isbn || "",
+      sinopsis: data.sinopsis || "",
+      portada_url: data.portada_url || ""
+    })
+  }
+
   if (libros.length === 0) return (
     <p className="ll-empty">No hay libros en el sistema todavía</p>
   )
@@ -105,58 +131,77 @@ export default function ListaLibros({ refresh, onEditar }) {
 
         return (
           <div key={libro.id} className={`ll-row ${estado === "procesando" ? "procesando" : ""}`}>
-            <div className="ll-cover">
-              {libro.portada_url
-                ? <img src={libro.portada_url} alt={libro.titulo} />
-                : <CoverPlaceholder />
-              }
-            </div>
-            <div className="ll-info">
-              <div className="ll-titulo">{libro.titulo}</div>
-              <div className="ll-meta">
-                {libro.autor ? `${libro.autor} · ` : ""}
-                {libro.num_paginas} págs · {libro.partes.length} partes
-              </div>
-              <div className="ll-partes">
-                {libro.partes.map((p, i) => (
-                  <div key={i} className={`ll-dot ${p.estado}`} />
-                ))}
-              </div>
-              {estado === "procesando" && (
-                <div className="ll-progreso-wrap">
-                  <div className="ll-progreso-barra-fondo">
-                    <div className="ll-progreso-barra" style={{ width: `${porcentaje}%` }} />
-                  </div>
-                  <span className="ll-progreso-label">{porcentaje}%</span>
+
+            {/* Menú tres puntos — solo móvil, esquina superior derecha */}
+            <div className="ll-menu-wrap" onMouseDown={e => e.stopPropagation()}>
+              <button
+                className="ll-btn-dots"
+                onClick={() => setMenuAbierto(menuAbierto === libro.id ? null : libro.id)}
+              >⋯</button>
+              {menuAbierto === libro.id && (
+                <div className="ll-dropdown">
+                  <button onClick={() => { setMenuAbierto(null); abrirEditar(libro.id) }}>
+                    Editar
+                  </button>
+                  <div className="dd-sep" />
+                  <button
+                    onClick={() => { setMenuAbierto(null); cambiarVisibilidad(libro.id, !libro.visible) }}
+                    disabled={!estaListo}
+                  >
+                    {libro.visible ? "Despublicar" : "Publicar"}
+                  </button>
+                  <div className="dd-sep" />
+                  <button
+                    className="dd-del"
+                    onClick={() => { setMenuAbierto(null); borrarLibro(libro.id) }}
+                  >
+                    Eliminar
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Cabecera: portada + info */}
+            <div className="ll-header">
+              <div className="ll-cover">
+                {libro.portada_url
+                  ? <img src={libro.portada_url} alt={libro.titulo} />
+                  : <CoverPlaceholder />
+                }
+              </div>
+              <div className="ll-info">
+                <div className="ll-titulo-row">
+                  <div className="ll-titulo">{libro.titulo}</div>
+                  <span className={`ll-badge ${badge}`}>
+                    {badge === "publicado"           ? "Publicado"
+                     : badge === "publicado-parcial" ? "Publicado (parcial)"
+                     : badge === "procesando"        ? "Procesando"
+                     : "Sin publicar"}
+                  </span>
+                </div>
+                <div className="ll-meta">
+                  {libro.autor ? `${libro.autor} · ` : ""}
+                  {libro.num_paginas} págs · {libro.partes.length} partes
+                </div>
+                <div className="ll-partes">
+                  {libro.partes.map((p, i) => (
+                    <div key={i} className={`ll-dot ${p.estado}`} />
+                  ))}
+                </div>
+                {estado === "procesando" && (
+                  <div className="ll-progreso-wrap">
+                    <div className="ll-progreso-barra-fondo">
+                      <div className="ll-progreso-barra" style={{ width: `${porcentaje}%` }} />
+                    </div>
+                    <span className="ll-progreso-label">{porcentaje}%</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Acciones — solo escritorio */}
             <div className="ll-actions">
-              <span className={`ll-badge ${badge}`}>
-                {badge === "publicado" ? "Publicado"
-                  : badge === "publicado-parcial" ? "Publicado (parcial)"
-                  : badge === "procesando" ? "Procesando"
-                  : "Sin publicar"}
-              </span>
-              <button
-                className="ll-btn-edit"
-                onClick={async () => {
-                  const res = await fetch(`${API}/libros/${libro.id}`, { credentials: "include" })
-                  const data = await res.json()
-                  onEditar({
-                    id: data.id,
-                    titulo: data.titulo || "",
-                    autor: data.autor || "",
-                    serie: data.serie || "",
-                    anio: data.anio || "",
-                    genero: data.genero || "",
-                    editorial: data.editorial || "",
-                    isbn: data.isbn || "",
-                    sinopsis: data.sinopsis || "",
-                    portada_url: data.portada_url || ""
-                  })
-                }}
-              >
+              <button className="ll-btn-edit" onClick={() => abrirEditar(libro.id)}>
                 Editar
               </button>
               <button
@@ -167,19 +212,21 @@ export default function ListaLibros({ refresh, onEditar }) {
               >
                 {libro.visible ? "Despublicar" : "Publicar"}
               </button>
-              <button className="ll-btn-del" onClick={() => borrarLibro(libro.id)}>
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none"
-                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <line x1="2" y1="2" x2="12" y2="12"/>
-                  <line x1="12" y1="2" x2="2" y2="12"/>
-                </svg>
-              </button>
               {hayError(libro.partes) && estado !== "procesando" && (
                 <button className="ll-btn-retry" onClick={() => reintentar(libro.id)}>
                   Reintentar
                 </button>
               )}
+              <button
+                className="ll-btn-del-desk"
+                onMouseEnter={() => setHoveredDel(libro.id)}
+                onMouseLeave={() => setHoveredDel(null)}
+                onClick={() => borrarLibro(libro.id)}
+              >
+                Eliminar
+              </button>
             </div>
+
           </div>
         )
       })}

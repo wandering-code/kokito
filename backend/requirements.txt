@@ -7,7 +7,8 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
 attrs==25.4.0
-bcrypt==4.0.1
+bcrypt==5.0.0
+beautifulsoup4==4.14.3
 billiard==4.2.4
 celery==5.6.2
 certifi==2026.2.25
@@ -18,6 +19,7 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 cryptography==46.0.5
+EbookLib==0.20
 ecdsa==0.19.1
 edge-tts==7.2.7
 fastapi==0.135.1
@@ -33,6 +35,7 @@ httpcore==1.0.9
 httpx==0.28.1
 idna==3.11
 kombu==5.6.2
+lxml==6.0.2
 Mako==1.3.10
 MarkupSafe==3.0.3
 multidict==6.7.1
@@ -60,6 +63,7 @@ redis==7.3.0
 requests==2.32.5
 rsa==4.9.1
 six==1.17.0
+soupsieve==2.8.3
 SQLAlchemy==2.0.48
 starlette==0.52.1
 tabulate==0.9.0

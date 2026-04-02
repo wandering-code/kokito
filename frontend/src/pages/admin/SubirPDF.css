@@ -1,26 +1,45 @@
 .spdf-grid { display: flex; flex-direction: column; gap: 16px; }
 
-.spdf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.spdf-full { grid-column: 1 / -1; }
+/* ── Filas de campos ───────────────────────────────────── */
+.spdf-row          { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.spdf-row-3        { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.spdf-row-2-1      { display: grid; grid-template-columns: 1fr 1.4fr; gap: 14px; }
+.spdf-full         { grid-column: 1 / -1; }
 
+/* ── Labels e inputs ───────────────────────────────────── */
 .spdf-field label {
   display: block; font-size: 11px; font-weight: 500;
   color: var(--cr-brown); letter-spacing: 0.07em;
   text-transform: uppercase; margin-bottom: 5px;
 }
 
-.spdf-field input {
-  width: 100%; background: #fff;
+.spdf-field input,
+.spdf-field textarea,
+.spdf-field select {
+  width: 100%; box-sizing: border-box; background: #fff;
   border: 1px solid var(--cr-border); border-radius: 8px;
   padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
   font-family: inherit; outline: none;
   transition: border-color 0.18s, box-shadow 0.18s;
 }
-.spdf-field input:focus {
+.spdf-field input:focus,
+.spdf-field textarea:focus,
+.spdf-field select:focus {
   border-color: var(--cr-border-focus, #6B9E6E);
   box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
 }
 
+.spdf-textarea { resize: vertical; }
+
+.spdf-select {
+  cursor: pointer; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238B6B4A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+/* ── Motor TTS ─────────────────────────────────────────── */
 .spdf-tts { display: flex; border: 1px solid var(--cr-warm); border-radius: 8px; overflow: hidden; }
 .spdf-tts-btn {
   flex: 1; padding: 9px; font-size: 13px; font-weight: 500;
@@ -30,18 +49,16 @@
 .spdf-tts-btn:first-child { border-right: 1px solid var(--cr-warm); }
 .spdf-tts-btn.active { background: var(--cr-brown); color: var(--cr-bg); }
 
+/* ── Coqui / voces ─────────────────────────────────────── */
 .spdf-coqui {
   background: var(--cr-surface); border-radius: 10px;
   padding: 16px; display: flex; flex-direction: column; gap: 12px;
 }
-
 .spdf-coqui-title {
   font-size: 11px; font-weight: 500; color: var(--cr-brown);
   letter-spacing: 0.06em; text-transform: uppercase;
 }
-
 .spdf-voces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-
 .spdf-voz {
   border: 1px solid var(--cr-border); border-radius: 8px;
   padding: 10px 12px; cursor: pointer;
@@ -50,10 +67,8 @@
 }
 .spdf-voz:hover { border-color: var(--cr-tan); }
 .spdf-voz.selected { border-color: var(--cr-brown); background: rgba(139,107,74,0.05); }
-
-.spdf-voz-name  { font-size: 13px; font-weight: 500; color: var(--cr-dark); }
-.spdf-voz-desc  { font-size: 11px; color: var(--cr-muted); }
-
+.spdf-voz-name { font-size: 13px; font-weight: 500; color: var(--cr-dark); }
+.spdf-voz-desc { font-size: 11px; color: var(--cr-muted); }
 .spdf-voz-play {
   width: 24px; height: 24px; border-radius: 50%;
   background: var(--cr-warm); border: none; cursor: pointer;
@@ -66,115 +81,56 @@
   border: 1px dashed var(--cr-tan); border-radius: 8px;
   padding: 10px 14px; display: flex; align-items: center; gap: 10px;
   cursor: pointer; font-size: 13px; color: var(--cr-muted);
-  background: transparent; width: 100%; font-family: inherit;
+  background: transparent; width: 100%; font-family: inherit; box-sizing: border-box;
   transition: border-color 0.15s, color 0.15s;
 }
 .spdf-voz-custom:hover { border-color: var(--cr-brown); color: var(--cr-brown); }
-.spdf-voz-nombre { font-size: 12px; color: var(--cr-green); margin-top: 2px; }
 
+/* ── Drop PDF ──────────────────────────────────────────── */
 .spdf-drop {
   border: 1.5px dashed var(--cr-tan); border-radius: 10px;
   padding: 22px; display: flex; flex-direction: column;
   align-items: center; gap: 8px; cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-  background: transparent;
+  transition: border-color 0.15s, background 0.15s; background: transparent;
 }
 .spdf-drop:hover { border-color: var(--cr-brown); background: var(--cr-surface); }
 .spdf-drop.con-archivo { border-color: var(--cr-green); background: rgba(74,110,76,0.04); }
-
 .spdf-drop-label  { font-size: 13px; color: var(--cr-muted); }
 .spdf-drop-nombre { font-size: 13px; color: var(--cr-green); font-weight: 500; }
 
-.spdf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+/* ── Portada ───────────────────────────────────────────── */
+.spdf-portada { display: flex; align-items: flex-start; gap: 14px; }
+.spdf-portada-preview {
+  width: 80px; height: 110px; object-fit: cover;
+  border-radius: 6px; border: 1px solid var(--cr-border); flex-shrink: 0;
+}
+.spdf-portada-placeholder {
+  width: 80px; height: 110px; border-radius: 6px;
+  background: var(--cr-warm); border: 1px dashed var(--cr-tan); flex-shrink: 0;
+}
+.spdf-portada-acciones {
+  display: flex; flex-direction: column; gap: 8px; padding-bottom: 4px;
+}
+.spdf-portada-subir {
+  font-size: 12px; color: var(--cr-brown);
+  border: 1px solid var(--cr-border); border-radius: 7px;
+  padding: 6px 12px; cursor: pointer; font-family: inherit;
+  background: transparent; transition: background 0.15s; white-space: nowrap;
+}
+.spdf-portada-subir:hover { background: var(--cr-warm); }
+.spdf-portada-quitar {
+  font-size: 12px; color: var(--cr-muted);
+  border: none; background: none; cursor: pointer;
+  font-family: inherit; padding: 0;
+  text-decoration: underline; transition: color 0.15s;
+}
+.spdf-portada-quitar:hover { color: #a33; }
 
-.spdf-btn-cancel {
-  font-size: 13px; border: 1px solid var(--cr-border); border-radius: 8px;
-  padding: 9px 18px; background: transparent; color: var(--cr-muted);
-  cursor: pointer; font-family: inherit; transition: background 0.15s;
-}
-.spdf-btn-cancel:hover { background: var(--cr-warm); }
-
-.spdf-btn-submit {
-  font-size: 13px; border: none; border-radius: 8px;
-  padding: 9px 22px; background: var(--cr-brown); color: var(--cr-bg);
-  cursor: pointer; font-family: inherit; font-weight: 500;
-  transition: background 0.15s;
-}
-.spdf-btn-submit:hover    { background: var(--cr-dark); }
-.spdf-btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.spdf-progreso {
-  display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 0;
-}
-.spdf-spinner {
-  width: 28px; height: 28px; border-radius: 50%;
-  border: 3px solid var(--cr-warm); border-top-color: var(--cr-brown);
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.spdf-prog-label { font-size: 13px; color: var(--cr-muted); }
-.spdf-prog-bar-wrap { width: 100%; background: var(--cr-warm); border-radius: 4px; height: 5px; }
-.spdf-prog-bar { height: 5px; border-radius: 4px; background: var(--cr-brown); transition: width 0.3s; }
-
-.spdf-listo {
-  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 0;
-}
-.spdf-listo-icon {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: rgba(74,110,76,0.12);
-  display: flex; align-items: center; justify-content: center;
-}
-.spdf-listo-msg { font-size: 13px; color: var(--cr-dark); text-align: center; }
-.spdf-listo-sub { font-size: 12px; color: var(--cr-muted); text-align: center; }
-.spdf-btn-otro {
-  font-size: 12px; color: var(--cr-muted); background: none; border: none;
-  cursor: pointer; font-family: inherit; text-decoration: underline;
-  transition: color 0.15s;
-}
-.spdf-btn-otro:hover { color: var(--cr-brown); }
-
-.spdf-error { font-size: 13px; color: #a33; text-align: center; }
-
-.spdf-textarea {
-  width: 100%; background: #fff;
-  border: 1px solid var(--cr-border); border-radius: 8px;
-  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
-  font-family: inherit; outline: none; resize: vertical;
-  transition: border-color 0.18s, box-shadow 0.18s;
-}
-.spdf-textarea:focus {
-  border-color: var(--cr-border-focus, #6B9E6E);
-  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
-}
-
-.spdf-select {
-  width: 100%; background: #fff;
-  border: 1px solid var(--cr-border); border-radius: 8px;
-  padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
-  font-family: inherit; outline: none; cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238B6B4A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
-}
-.spdf-select:focus {
-  border-color: var(--cr-border-focus, #6B9E6E);
-  box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
-}
-
-.spdf-busqueda {
-  display: flex; flex-direction: column; gap: 8px;
-}
-
-.spdf-busqueda-row {
-  display: flex; gap: 8px;
-}
-
+/* ── Buscador ──────────────────────────────────────────── */
+.spdf-busqueda { display: flex; flex-direction: column; gap: 8px; }
+.spdf-busqueda-row { display: flex; gap: 8px; }
 .spdf-busqueda-input {
-  flex: 1; background: #fff;
-  border: 1px solid var(--cr-border); border-radius: 8px;
+  flex: 1; background: #fff; border: 1px solid var(--cr-border); border-radius: 8px;
   padding: 10px 12px; font-size: 13px; color: var(--cr-dark);
   font-family: inherit; outline: none;
   transition: border-color 0.18s, box-shadow 0.18s;
@@ -183,7 +139,6 @@
   border-color: var(--cr-border-focus, #6B9E6E);
   box-shadow: 0 0 0 3px rgba(107,158,110,0.12);
 }
-
 .spdf-busqueda-btn {
   font-size: 13px; border: none; border-radius: 8px;
   padding: 9px 18px; background: var(--cr-brown); color: var(--cr-bg);
@@ -198,69 +153,65 @@
   overflow: hidden; background: #fff;
   max-height: 280px; overflow-y: auto;
 }
-
 .spdf-resultado {
   display: flex; gap: 12px; align-items: center;
   padding: 10px 14px; cursor: pointer;
-  border-bottom: 1px solid var(--cr-warm);
-  transition: background 0.15s;
+  border-bottom: 1px solid var(--cr-warm); transition: background 0.15s;
 }
 .spdf-resultado:last-child { border-bottom: none; }
 .spdf-resultado:hover { background: var(--cr-surface); }
-
 .spdf-resultado-cover {
   width: 32px; height: 44px; flex-shrink: 0;
-  border-radius: 3px; overflow: hidden;
-  background: var(--cr-warm);
+  border-radius: 3px; overflow: hidden; background: var(--cr-warm);
 }
-.spdf-resultado-cover img {
-  width: 100%; height: 100%; object-fit: cover; display: block;
+.spdf-resultado-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spdf-resultado-nocover { width: 100%; height: 100%; background: var(--cr-warm); }
+.spdf-resultado-titulo { font-size: 13px; font-weight: 500; color: var(--cr-dark); }
+.spdf-resultado-meta { font-size: 11px; color: var(--cr-muted); margin-top: 2px; }
+
+/* ── Acciones finales ──────────────────────────────────── */
+.spdf-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+
+.spdf-btn-cancel {
+  font-size: 13px; border: 1px solid var(--cr-border); border-radius: 8px;
+  padding: 9px 18px; background: transparent; color: var(--cr-muted);
+  cursor: pointer; font-family: inherit; transition: background 0.15s;
 }
-.spdf-resultado-nocover {
-  width: 100%; height: 100%; background: var(--cr-warm);
+.spdf-btn-cancel:hover { background: var(--cr-warm); }
+
+.spdf-btn-submit {
+  font-size: 13px; border: none; border-radius: 8px;
+  padding: 9px 22px; background: var(--cr-brown); color: var(--cr-bg);
+  cursor: pointer; font-family: inherit; font-weight: 500; transition: background 0.15s;
+}
+.spdf-btn-submit:hover    { background: var(--cr-dark); }
+.spdf-btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spdf-error { font-size: 13px; color: #a33; text-align: center; }
+
+/* ── Móvil ─────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .spdf-row,
+  .spdf-row-3,
+  .spdf-row-2-1 { grid-template-columns: 1fr; gap: 12px; }
+
+  .spdf-voces { grid-template-columns: 1fr; }
+
+  .spdf-actions { flex-direction: column-reverse; }
+  .spdf-btn-cancel,
+  .spdf-btn-submit { width: 100%; text-align: center; padding: 11px; }
 }
 
-.spdf-resultado-titulo {
-  font-size: 13px; font-weight: 500; color: var(--cr-dark);
-}
-.spdf-resultado-meta {
-  font-size: 11px; color: var(--cr-muted); margin-top: 2px;
-}
-
-.spdf-portada {
-  display: flex; align-items: flex-start; gap: 14px;
+.spdf-epub-analizando {
+  font-size: 12px;
+  color: var(--cr-muted);
+  text-align: center;
+  padding: 4px 0;
 }
 
-.spdf-portada-preview {
-  width: 80px; height: 110px; object-fit: cover;
-  border-radius: 6px; border: 1px solid var(--cr-border);
-  flex-shrink: 0;
+.spdf-epub-info {
+  display: block;
+  font-size: 11px;
+  color: var(--cr-muted);
+  margin-top: 5px;
 }
-
-.spdf-portada-placeholder {
-  width: 80px; height: 110px; border-radius: 6px;
-  background: var(--cr-warm); border: 1px dashed var(--cr-tan);
-  flex-shrink: 0;
-}
-
-.spdf-portada-acciones {
-  display: flex; flex-direction: column; gap: 8px; justify-content: flex-end;
-  padding-bottom: 4px;
-}
-
-.spdf-portada-subir {
-  font-size: 12px; color: var(--cr-brown);
-  border: 1px solid var(--cr-border); border-radius: 7px;
-  padding: 6px 12px; cursor: pointer; font-family: inherit;
-  background: transparent; transition: background 0.15s;
-  white-space: nowrap;
-}
-.spdf-portada-subir:hover { background: var(--cr-warm); }
-
-.spdf-portada-quitar {
-  font-size: 12px; color: var(--cr-muted);
-  border: none; background: none; cursor: pointer;
-  font-family: inherit; padding: 0;
-  text-decoration: underline; transition: color 0.15s;
-}
-.spdf-portada-quitar:hover { color: #a33; }

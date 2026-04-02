@@ -5,7 +5,7 @@ import "./SubirPDF.css"
 const VOCES_PREDEFINIDAS = [
   { id: "voz_masculina_grave.mp3", nombre: "Voz 1", descripcion: "Masculina · grave" },
   { id: "voz_masculina_media.mp3", nombre: "Voz 2", descripcion: "Masculina · media" },
-  { id: "voz_femenina_suave.mp3", nombre: "Voz 3", descripcion: "Femenina · suave" },
+  { id: "voz_femenina_suave.mp3",  nombre: "Voz 3", descripcion: "Femenina · suave" },
 ]
 
 const GENEROS = [
@@ -56,6 +56,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   const [vozSeleccionada, setVozSeleccionada]   = useState("voz_1")
   const [vozArchivo, setVozArchivo]             = useState(null)
   const [archivo, setArchivo]                   = useState(null)
+  const [formatoArchivo, setFormatoArchivo]     = useState(null) // "pdf" | "epub" | null
+  const [capitulosEpub, setCapitulosEpub]       = useState([])
+  const [capituloInicio, setCapituloInicio]     = useState(0)
+  const [analizandoEpub, setAnalizandoEpub]     = useState(false)
   const [error, setError]                       = useState(null)
   const [vozReproduciendo, setVozReproduciendo] = useState(null)
   const [proveedorOcupado, setProveedorOcupado] = useState(false)
@@ -65,15 +69,9 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   const [portadaUrl, setPortadaUrl]             = useState("")
   const [portadaPreview, setPortadaPreview]     = useState("")
   const audioActivo  = useRef(null)
-  const intervaloRef = useRef(null)
 
-  // Autorrellenar cuando se recibe un libro a editar
   useEffect(() => {
-    console.log("useEffect libroEditando:", libroEditando)
-    if (!libroEditando) {
-      resetear()
-      return
-    }
+    if (!libroEditando) { resetear(); return }
     setTitulo(libroEditando.titulo || "")
     setAutor(libroEditando.autor || "")
     setSerie(libroEditando.serie || "")
@@ -89,27 +87,18 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   }, [libroEditando])
 
   useEffect(() => {
-    async function comprobarYPolling() {
+    async function comprobarProveedor() {
       try {
         const res = await fetch(`${API}/admin/procesando`, { credentials: "include" })
         const data = await res.json()
-        const ocupado = !!data.procesos[proveedor]
-        setProveedorOcupado(ocupado)
-        if (!ocupado && intervaloRef.current) {
-          clearInterval(intervaloRef.current)
-          intervaloRef.current = null
-        }
+        setProveedorOcupado(!!data.procesos[proveedor])
       } catch (e) {
         setProveedorOcupado(false)
       }
     }
-
-    comprobarYPolling()
-    intervaloRef.current = setInterval(comprobarYPolling, 5000)
-    return () => {
-      clearInterval(intervaloRef.current)
-      intervaloRef.current = null
-    }
+    comprobarProveedor()
+    const intervalo = setInterval(comprobarProveedor, 5000)
+    return () => clearInterval(intervalo)
   }, [proveedor])
 
   async function comprobarProveedor() {
@@ -122,6 +111,33 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     }
   }
 
+  async function handleArchivoSeleccionado(file) {
+    if (!file) return
+    const ext = file.name.split(".").pop().toLowerCase()
+    const fmt = ext === "epub" ? "epub" : "pdf"
+    setArchivo(file)
+    setFormatoArchivo(fmt)
+    setCapitulosEpub([])
+    setCapituloInicio(0)
+
+    if (fmt === "epub") {
+      setAnalizandoEpub(true)
+      try {
+        const fd = new FormData()
+        fd.append("epub", file)
+        const res = await fetch(`${API}/analizar-epub`, {
+          method: "POST", body: fd, credentials: "include"
+        })
+        const caps = await res.json()
+        setCapitulosEpub(caps)
+      } catch (e) {
+        setError("No se pudo analizar el EPUB")
+      } finally {
+        setAnalizandoEpub(false)
+      }
+    }
+  }
+
   function reproducirVoz(vozId, e) {
     e.stopPropagation()
     if (audioActivo.current && audioActivo.current.src.endsWith(vozId)) {
@@ -130,25 +146,18 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
       setVozReproduciendo(null)
       return
     }
-    if (audioActivo.current) {
-      audioActivo.current.pause()
-      audioActivo.current = null
-    }
+    if (audioActivo.current) { audioActivo.current.pause(); audioActivo.current = null }
     const audio = new Audio(`${API}/voces/${vozId}`)
     audio.play()
     audioActivo.current = audio
     setVozReproduciendo(vozId)
-    audio.onended = () => {
-      audioActivo.current = null
-      setVozReproduciendo(null)
-    }
+    audio.onended = () => { audioActivo.current = null; setVozReproduciendo(null) }
   }
 
   async function handleSubmit() {
     if (!titulo.trim()) return setError("El título es obligatorio")
     setError(null)
 
-    // MODO EDICIÓN
     if (libroEditando) {
       const fd = new FormData()
       fd.append("titulo", titulo)
@@ -160,21 +169,18 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
       fd.append("isbn", isbn)
       fd.append("sinopsis", sinopsis)
       fd.append("portada_url", portadaUrl)
-
       const res = await fetch(`${API}/libros/${libroEditando.id}/metadatos`, {
         method: "PATCH", body: fd, credentials: "include"
       })
       if (res.ok) {
         if (onLibroSubido) onLibroSubido()
-//        resetear()
       } else {
         setError("Error al guardar los cambios")
       }
       return
     }
 
-    // MODO CREACIÓN
-    if (!archivo) return setError("Selecciona un PDF")
+    if (!archivo) return setError("Selecciona un archivo PDF o EPUB")
 
     const fd = new FormData()
     fd.append("pdf", archivo)
@@ -189,6 +195,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     fd.append("paginas_por_parte", paginasPorParte)
     fd.append("proveedor", proveedor)
     fd.append("portada_url", portadaUrl)
+    fd.append("capitulo_inicio", capituloInicio)
 
     if (proveedor === "local") {
       if (vozArchivo) {
@@ -217,9 +224,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
 
   function resetear() {
     setError(null)
-    setTitulo(""); setAutor(""); setSerie(""); setAnio()
+    setTitulo(""); setAutor(""); setSerie(""); setAnio("")
     setGenero(""); setEditorial(""); setIsbn(""); setSinopsis("")
-    setArchivo(null); setVozArchivo(null)
+    setArchivo(null); setVozArchivo(null); setFormatoArchivo(null)
+    setCapitulosEpub([]); setCapituloInicio(0)
     setVozSeleccionada("voz_1"); setProveedor("edge")
     setPortadaUrl(""); setPortadaPreview("")
   }
@@ -250,12 +258,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
 
     if (libro.cover_i) {
       const url = `https://covers.openlibrary.org/b/id/${libro.cover_i}-L.jpg`
-      setPortadaUrl(url)
-      setPortadaPreview(url)
+      setPortadaUrl(url); setPortadaPreview(url)
     } else if (libro.isbn?.[0]) {
       const url = `https://covers.openlibrary.org/b/isbn/${libro.isbn[0]}-L.jpg`
-      setPortadaUrl(url)
-      setPortadaPreview(url)
+      setPortadaUrl(url); setPortadaPreview(url)
     }
 
     const generoInicial = detectarGenero(libro.subject)
@@ -301,7 +307,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   return (
     <div className="spdf-grid">
 
-      {/* Buscador — visible siempre, útil también al editar */}
+      {/* Buscador */}
       <div className="spdf-busqueda">
         <div className="spdf-busqueda-row">
           <input
@@ -347,13 +353,15 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
         )}
       </div>
 
-      {/* Campos de metadatos — siempre visibles */}
+      {/* Título */}
+      <div className="spdf-field">
+        <label>Título</label>
+        <input type="text" placeholder="Título del libro" value={titulo}
+          onChange={e => setTitulo(e.target.value)} />
+      </div>
+
+      {/* Autor / Serie */}
       <div className="spdf-row">
-        <div className="spdf-field spdf-full">
-          <label>Título</label>
-          <input type="text" placeholder="Título del libro" value={titulo}
-            onChange={e => setTitulo(e.target.value)} />
-        </div>
         <div className="spdf-field">
           <label>Autor</label>
           <input type="text" placeholder="Autor" value={autor}
@@ -366,18 +374,16 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
         </div>
       </div>
 
-      <div className="spdf-row">
-      <div className="spdf-field">
-        <label>Año</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          placeholder="Año de publicación"
-          value={anio || ""}
-          onChange={e => setAnio(e.target.value.replace(/\D/g, ""))}
-        />
-      </div>
+      {/* Año / Género */}
+      <div className="spdf-row-2-1">
+        <div className="spdf-field">
+          <label>Año</label>
+          <input
+            type="text" inputMode="numeric" pattern="[0-9]*"
+            placeholder="Año de publicación" value={anio || ""}
+            onChange={e => setAnio(e.target.value.replace(/\D/g, ""))}
+          />
+        </div>
         <div className="spdf-field">
           <label>Género</label>
           <select className="spdf-select" value={genero} onChange={e => setGenero(e.target.value)}>
@@ -386,6 +392,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Editorial / ISBN */}
+      <div className="spdf-row">
         <div className="spdf-field">
           <label>Editorial</label>
           <input type="text" placeholder="Editorial" value={editorial}
@@ -398,17 +408,18 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
         </div>
       </div>
 
+      {/* Sinopsis */}
       <div className="spdf-field">
         <label>Sinopsis</label>
         <textarea
           className="spdf-textarea"
           placeholder="Breve descripción del libro (opcional)"
-          value={sinopsis}
-          rows={3}
+          value={sinopsis} rows={3}
           onChange={e => setSinopsis(e.target.value)}
         />
       </div>
 
+      {/* Portada */}
       <div className="spdf-field">
         <label>Portada</label>
         <div className="spdf-portada">
@@ -418,10 +429,8 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
           }
           <div className="spdf-portada-acciones">
             {portadaPreview && (
-              <button
-                className="spdf-portada-quitar"
-                onClick={() => { setPortadaUrl(""); setPortadaPreview("") }}
-              >
+              <button className="spdf-portada-quitar"
+                onClick={() => { setPortadaUrl(""); setPortadaPreview("") }}>
                 Quitar portada
               </button>
             )}
@@ -437,14 +446,61 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
       {/* Campos solo para creación */}
       {!libroEditando && (
         <>
-          <div className="spdf-row">
+          {/* Zona de selección de archivo */}
+          <label className={`spdf-drop ${archivo ? "con-archivo" : ""}`}>
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
+              stroke={archivo ? "var(--cr-green)" : "var(--cr-tan)"} strokeWidth="1.5" strokeLinecap="round">
+              <rect x="4" y="2" width="20" height="24" rx="3"/>
+              <line x1="8" y1="9"  x2="20" y2="9"/>
+              <line x1="8" y1="14" x2="20" y2="14"/>
+              <line x1="8" y1="19" x2="15" y2="19"/>
+            </svg>
+            {archivo
+              ? <span className="spdf-drop-nombre">{archivo.name}</span>
+              : <span className="spdf-drop-label">
+                  <strong style={{ color: "var(--cr-brown)" }}>Selecciona un PDF o EPUB</strong> o arrastra aquí
+                </span>
+            }
+            <input type="file" accept=".pdf,.epub" style={{ display: "none" }}
+              onChange={e => handleArchivoSeleccionado(e.target.files[0])} />
+          </label>
+
+          {/* Analizando EPUB */}
+          {analizandoEpub && (
+            <p className="spdf-epub-analizando">Analizando capítulos del EPUB…</p>
+          )}
+
+          {/* Selector de capítulo inicial — solo para EPUB */}
+          {formatoArchivo === "epub" && capitulosEpub.length > 0 && (
+            <div className="spdf-field">
+              <label>Empezar desde el capítulo</label>
+              <select
+                className="spdf-select"
+                value={capituloInicio}
+                onChange={e => setCapituloInicio(parseInt(e.target.value))}
+              >
+                {capitulosEpub.map(cap => (
+                  <option key={cap.indice} value={cap.indice}>
+                    {cap.indice + 1}. {cap.titulo || `Capítulo ${cap.indice + 1}`} ({cap.palabras} pal.)
+                  </option>
+                ))}
+              </select>
+              <span className="spdf-epub-info">
+                Se procesará desde aquí hasta el final, luego del principio hasta el capítulo anterior
+              </span>
+            </div>
+          )}
+
+          {/* Páginas por parte — solo para PDF */}
+          {formatoArchivo === "pdf" && (
             <div className="spdf-field">
               <label>Páginas por parte</label>
               <input type="number" value={paginasPorParte} min={10} max={200}
                 onChange={e => setPaginasPorParte(parseInt(e.target.value))} />
             </div>
-          </div>
+          )}
 
+          {/* Motor de voz */}
           <div className="spdf-field">
             <label>Motor de voz</label>
             <div className="spdf-tts">
@@ -498,24 +554,6 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
               </label>
             </div>
           )}
-
-          <label className={`spdf-drop ${archivo ? "con-archivo" : ""}`}>
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
-              stroke={archivo ? "var(--cr-green)" : "var(--cr-tan)"} strokeWidth="1.5" strokeLinecap="round">
-              <rect x="4" y="2" width="20" height="24" rx="3"/>
-              <line x1="8" y1="9"  x2="20" y2="9"/>
-              <line x1="8" y1="14" x2="20" y2="14"/>
-              <line x1="8" y1="19" x2="15" y2="19"/>
-            </svg>
-            {archivo
-              ? <span className="spdf-drop-nombre">{archivo.name}</span>
-              : <span className="spdf-drop-label">
-                  <strong style={{color:"var(--cr-brown)"}}>Selecciona un PDF</strong> o arrastra aquí
-                </span>
-            }
-            <input type="file" accept=".pdf" style={{ display: "none" }}
-              onChange={e => setArchivo(e.target.files[0])} />
-          </label>
         </>
       )}
 
@@ -527,11 +565,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
             <button className="spdf-btn-cancel" onClick={() => { resetear(); onCancelarEdicion() }}>
               Cancelar
             </button>
-            <button
-              className="spdf-btn-submit"
-              onClick={handleSubmit}
-              disabled={!titulo.trim()}
-            >
+            <button className="spdf-btn-submit" onClick={handleSubmit} disabled={!titulo.trim()}>
               Guardar cambios
             </button>
           </>
@@ -541,10 +575,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
             <button
               className="spdf-btn-submit"
               onClick={handleSubmit}
-              disabled={!archivo || proveedorOcupado}
+              disabled={!archivo || proveedorOcupado || analizandoEpub}
               title={proveedorOcupado ? `El motor ${proveedor} ya está procesando un libro` : ""}
             >
-              {proveedorOcupado ? "Motor ocupado" : "Procesar libro"}
+              {proveedorOcupado ? "Motor ocupado" : analizandoEpub ? "Analizando…" : "Procesar libro"}
             </button>
           </>
         )}
