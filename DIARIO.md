@@ -3655,3 +3655,148 @@ bloque `if proveedor == "edge"` dentro del `if formato == "epub"`. El código ca
 - **Deploy en el mini PC** — actualizar con `git pull` + `docker compose up --build`
   + `alembic upgrade head`
 - **Nota Safari** — la recarga forzada sin caché es **Cmd+Opt+R** (no Cmd+Shift+R como en Chrome)
+- **Bug en orden de procesamiento EPUB** — al elegir empezar por el capítulo 11 de 83,
+  el sistema procesa el 11 y a continuación vuelve al 1 en lugar de continuar por el 12.
+  Pendiente de depurar la lógica de encolado en `tasks.py` — probablemente el worker
+  busca la siguiente parte pendiente con `numero_parte` más bajo sin respetar el orden
+  rotado, o hay un problema en cómo se crean los `numero_parte` al rotar los capítulos.
+
+---
+
+## Sesión 24 — Fixes de red, orden de procesamiento EPUB, mejoras de UI y calidad TTS
+
+### Lo que hemos construido
+
+- **Fix variable `TTS_LOCAL_URL`** — la variable no llegaba al worker porque estaba definida
+  en `environment` con `${TTS_LOCAL_URL}` (leía del shell) en lugar de venir solo del `env_file`.
+  Solución: eliminar la línea de `environment` y dejar que `env_file` la cargue directamente.
+- **Fix bug de orden de procesamiento EPUB** — al elegir un capítulo de inicio, los capítulos
+  se mostraban al usuario en el orden rotado en lugar del orden real del libro. Causa: el bucle
+  de asignación de `orden_procesamiento` al final de `analizar_y_registrar_libro` sobreescribía
+  los valores calculados para EPUB también. Solución: añadir condición `if formato == "pdf"`.
+- **Nueva columna `orden_procesamiento`** en la tabla `partes` — separa el orden de presentación
+  al usuario (`numero_parte`) del orden en que el worker procesa las partes.
+- **Reproductor flotante** — el reproductor deja de estar embebido en la página y pasa a ser
+  una barra fija en la parte inferior, por encima de la navbar en móvil. Contraído muestra
+  solo portada y título. Expandido muestra botones y scrubber. Animación suave de entrada
+  y salida con `max-height` y `opacity`.
+- **Mejoras de UI en `LibroPage`** — sinopsis movida a columna derecha con límite de 3 líneas
+  y botón "Ver más", ISBN ocultado, barra de progreso del libro funcional.
+- **Progreso del libro por posición** — `porcentajeLibro()` ahora muestra hasta la parte más
+  avanzada visitada, no las partes marcadas como escuchadas. Se actualiza en tiempo real sin
+  recargar la página gracias a `setProgresoPorParte` local.
+- **Barra de progreso en móvil** — nuevo bloque `libro-prog-movil` visible en móvil, situado
+  entre la franja superior y la sinopsis.
+- **Fix navbar móvil** — el menú desplegable de Admin quedaba por debajo del reproductor flotante.
+  Solución: subir `z-index` de `navbar-bottom` a 200 y del menú desplegable a 300.
+- **Bottom sheet en navbar móvil** — los menús de Admin y Perfil en móvil ahora se muestran
+  como un panel que sube desde abajo (patrón iOS), con overlay semitransparente, handle visual,
+  título de sección, iconos en los items y animación suave de entrada y salida.
+- **Animación de cierre del bottom sheet** — implementada con estados `adminMenuCerrando` y
+  `menuCerrando` + `setTimeout` de 200ms para permitir la animación antes de desmontar.
+- **Mejoras de calidad TTS local** — varios cambios iterativos para reducir artefactos:
+  - `insertar_pausas_sml()` en `text_utils.py` — inserta marcadores `[BREAK_SHORT]` y `[BREAK_LONG]`
+    en puntos estratégicos del texto
+  - `dividir_texto_local` — `max_chars` subido a 180 para dar más contexto a XTTS
+  - Fusión de fragmentos cortos **después** de dividir (no antes) — resuelve el problema de
+    frases de diálogo cortas que `dividir_texto_local` volvía a separar tras `fusionar_frases_cortas`
+  - `_extraer_marcador` — punto final convertido a coma (XTTS vocalizaba "punto"), guiones
+    `—` al final del fragmento convertidos a coma para evitar artefacto de clic
+  - Silencios variables: 200ms para `[BREAK_SHORT]`, 600ms para `[BREAK_LONG]`
+  - Salvaguarda de 220 caracteres antes de enviar a XTTS
+  - `REPETITION_PENALTY` reducido de 5.0 a 3.5 en `server.py`
+- **Fix extracción de texto EPUB** — `_agregar_capitulo` en `epub_utils.py` reescrito para
+  preservar la estructura HTML. Los `<h1>/<h2>/<h3>/<h4>` se separan con `\n\n` antes y después,
+  y los párrafos también, para que `limpiar_texto_local` genere pausas naturales entre el título
+  del capítulo y la narración.
+- **Partes sin audio ocultas** — en `LibroPage` las partes con `estado=listo` y `ruta_mp3=null`
+  (portadas, imágenes) se filtran de la lista y no se seleccionan automáticamente.
+- **Fix endpoint `/libros/{libro_id}`** — faltaba el campo `ruta_mp3` en la serialización
+  de las partes. Sin él el frontend no podía distinguir partes con audio de partes vacías.
+
+---
+
+### Archivos modificados
+
+**Backend:**
+- `backend/tts/text_utils.py` — nueva función `insertar_pausas_sml`
+- `backend/tts/local.py` — `dividir_texto_local` con `max_chars=180`, nueva función
+  `_extraer_marcador` con conversión de punto y guión final, fusión de fragmentos cortos
+  después de dividir, silencios variables, salvaguarda de 220 chars
+- `backend/epub_utils.py` — `_agregar_capitulo` reescrito para preservar estructura HTML
+- `backend/database.py` — nueva columna `orden_procesamiento` en `Parte`
+- `backend/main.py` — fix `analizar_y_registrar_libro` con condición `if formato == "pdf"`,
+  `ruta_mp3` añadido a la serialización de partes en `/libros/{libro_id}`
+- `backend/.env` — `TTS_LOCAL_URL` añadida
+- `docker-compose.yml` — eliminada línea `TTS_LOCAL_URL=${TTS_LOCAL_URL}` de `environment`
+
+**Frontend:**
+- `frontend/src/pages/usuario/LibroPage.jsx` — reproductor flotante, sinopsis en columna derecha,
+  progreso por posición, barra de progreso móvil, filtro de partes sin audio
+- `frontend/src/pages/usuario/LibroPage.css` — estilos reproductor flotante, sinopsis,
+  barra de progreso móvil, animación de expansión
+- `frontend/src/components/NavBar.jsx` — bottom sheet para Admin y Perfil en móvil,
+  animación de cierre, iconos `Library` y `Users` en items de menú, estado activo por ruta
+- `frontend/src/components/NavBar.css` — estilos bottom sheet, overlay, handle, animaciones
+  de entrada y salida, z-index corregido
+
+**Sobremesa Windows:**
+- `C:\kokito-tts\server.py` — `REPETITION_PENALTY` reducido de 5.0 a 3.5
+
+**Migraciones Alembic aplicadas:**
+- `orden_procesamiento en partes`
+
+---
+
+### Notas técnicas
+
+**Variable de entorno en Docker:**
+Cuando una variable está tanto en `environment` (con `${VAR}`) como en `env_file`, la de
+`environment` tiene prioridad. Si el shell no la tiene definida, llega vacía sobreescribiendo
+el valor del `env_file`. Solución: definirla solo en `env_file`.
+
+**Fusión de fragmentos cortos:**
+El orden correcto es: limpiar → insertar pausas SML → dividir → fusionar fragmentos cortos.
+Fusionar antes de dividir no funciona porque `dividir_texto_local` vuelve a separar por
+puntuación, deshaciendo las fusiones.
+
+**Animación de bottom sheet:**
+Para animar la salida hay que mantener el componente montado y usar clases CSS con
+`animation: ... forwards`. El patrón es: al cerrar, añadir clase `--saliendo`, esperar
+200ms con `setTimeout` y luego desmontar.
+
+**Tags SML:**
+Los tags `[BREAK_SHORT]` y `[BREAK_LONG]` no son nativos de XTTS — se procesan en `local.py`
+antes de llamar al servidor, convirtiéndolos en silencios reales con pydub. XTTS nunca
+los ve.
+
+**Artefacto de clic en XTTS:**
+XTTS genera un artefacto de clic ("tac") cuando el fragmento termina con un guión `—`.
+Solución: convertir el guión final a coma en `_extraer_marcador` antes de enviar.
+
+**Punto vocalizado por XTTS:**
+XTTS vocaliza el punto final de un fragmento como "punto". Solución: convertirlo a coma,
+que XTTS interpreta como pausa sin vocalizarla.
+
+**`ruta_mp3` en serialización de partes:**
+El campo `ruta_mp3` debe incluirse siempre en la respuesta del endpoint `/libros/{libro_id}`
+para que el frontend pueda distinguir partes con audio real de partes vacías (portadas,
+imágenes de EPUB que se marcan como `listo` pero sin MP3).
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Escucha completa de un capítulo** con los últimos cambios para valorar si los artefactos
+  han terminado de reducirse
+- **Reproductor global persistente:**
+  - Crear `PlayerContext` con el estado del reproductor
+  - Mover `player-flotante` y `<audio>` a `App.jsx`
+  - `LibroPage` consume el contexto en lugar de gestionar su propio estado
+  - El reproductor aparece oculto hasta que el usuario reproduce por primera vez
+  - Permite seguir escuchando mientras navega por otras páginas
+- **Sistema de solicitudes** — formulario para que usuarios pidan libros,
+  panel de admin para gestionarlas
+- **Deploy en el mini PC** — `git pull` + `docker compose up --build` + `alembic upgrade head`
+- **Google Books API** — mejor cobertura que Open Library para libros en español
+- **Botón de cancelar** en la fila del libro en `ListaLibros`

@@ -1,7 +1,6 @@
 import re
 
 def _numero_a_palabras(n: int) -> str:
-    """Convierte un número entero a su representación en palabras en español."""
     if n < 0:
         return "menos " + _numero_a_palabras(-n)
     if n == 0:
@@ -35,42 +34,32 @@ def _numero_a_palabras(n: int) -> str:
         prefijo = "mil" if miles == 1 else _numero_a_palabras(miles) + " mil"
         return prefijo + (" " + _numero_a_palabras(resto) if resto else "")
 
-    # Para números muy grandes, dejar como está — son raros en novelas
     return str(n)
 
 
 def _reemplazar_numeros(texto: str) -> str:
-    """Reemplaza números en cifras por su forma escrita, respetando años y casos especiales."""
     def reemplazar(match):
         numero_str = match.group(0).replace(".", "").replace(",", "")
         try:
             n = int(numero_str)
-            # Los años entre 1000 y 2100 los dejamos — suenan mejor en cifras
-            # porque XTTS los lee bien como años
             if 1000 <= n <= 2100:
                 return match.group(0)
             return _numero_a_palabras(n)
         except ValueError:
             return match.group(0)
 
-    # Solo reemplaza números aislados (no dentro de palabras)
     return re.sub(r'\b\d[\d.,]*\b', reemplazar, texto)
 
 
 def limpiar_texto_local(texto: str) -> str:
-    """
-    Preprocesado específico para XTTS v2.
-    Diferente a limpiar_texto (Edge TTS) — no eliminar ¿¡ ni guiones de diálogo.
-    """
-
-    # 1. Letras capitulares — unir letra suelta con la palabra siguiente (C\naía → Caía)
+    # 1. Letras capitulares
     texto = re.sub(r'(?m)^([A-ZÁÉÍÓÚÑÜ])\n([a-záéíóúñü])', r'\1\2', texto)
 
-    # 2. Notas del traductor y del autor — XTTS las lee literalmente
+    # 2. Notas del traductor
     texto = re.sub(r'\[N\.\s*del\s*[TAta]\.:?[^\]]*\]', '', texto)
     texto = re.sub(r'\(N\.\s*del\s*[TAta]\.:?[^)]*\)', '', texto)
 
-    # 3. Pies de página — ANTES de colapsar saltos de línea
+    # 3. Pies de página y URLs — ANTES de colapsar saltos
     NUMEROS_ESCRITOS = (
         r'(?:cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|'
         r'once|doce|trece|catorce|quince|dieciséis|diecisiete|dieciocho|diecinueve|'
@@ -81,13 +70,13 @@ def limpiar_texto_local(texto: str) -> str:
     texto = re.sub(r'www\.\S+', '', texto)
     texto = re.sub(r'https?://\S+', '', texto)
 
-    # 4. Saltos de línea dentro de frase — después de limpiar páginas
+    # 4. Saltos de línea dentro de frase
     texto = re.sub(r'([^.!?\n])\n([^\n])', r'\1 \2', texto)
 
-    # 4. Símbolos sueltos que aparecen en notas a pie de página arrastradas por pdfplumber
+    # 5. Símbolos sueltos
     texto = re.sub(r'[*†§©®™]', '', texto)
 
-    # 5. Abreviaciones comunes en novelas — XTTS las deletrea o hace pausa rara
+    # 6. Abreviaciones
     abreviaciones = {
         r'\bPág\.\s*': 'página ',
         r'\bpág\.\s*': 'página ',
@@ -109,47 +98,62 @@ def limpiar_texto_local(texto: str) -> str:
     for patron, reemplazo in abreviaciones.items():
         texto = re.sub(patron, reemplazo, texto)
 
-    # 6. Comillas tipográficas → comillas simples
-    # XTTS maneja bien las comillas pero las tipográficas a veces confunden
+    # 7. Comillas tipográficas
     texto = texto.replace('\u201c', '"').replace('\u201d', '"')
     texto = texto.replace('\u2018', "'").replace('\u2019', "'")
 
-    # 7. Números en cifras → palabras (excepto años)
+    # 8. Números a palabras
     texto = _reemplazar_numeros(texto)
 
-    # 8. Títulos de capítulo en mayúsculas — línea sola → pausa natural con punto
-    # Mantenemos el texto pero lo rodeamos de puntos para que XTTS haga pausa
+    # 9. Títulos en mayúsculas
     texto = re.sub(r'\n([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s]{2,})\n', r'. \1. ', texto)
 
-    # 9. Letras capitulares sueltas en línea propia que no se pegaron en paso 1
+    # 10. Letras capitulares sueltas
     texto = re.sub(r'(?m)^\s*[A-ZÁÉÍÓÚÑÜ]\s*$', '', texto)
 
-    # 10. Saltos de línea dobles → pausa (punto si no hay puntuación antes)
+    # 11. Saltos dobles → pausa
     texto = re.sub(r'([^.!?])\n{2,}', r'\1. ', texto)
     texto = re.sub(r'\n{2,}', '. ', texto)
 
-    # 11. Saltos de línea simples → espacio
+    # 12. Saltos simples → espacio
     texto = re.sub(r'\n', ' ', texto)
 
-    # 12. Espacios múltiples
+    # 13. Espacios múltiples
     texto = re.sub(r'\s+', ' ', texto)
 
-    # 13. Espacios antes de puntuación
+    # 14. Espacios antes de puntuación
     texto = re.sub(r'\s+([.,;:!?])', r'\1', texto)
 
-    # 14. Puntuación doble o mal combinada
+    # 15. Puntuación doble
     texto = re.sub(r'\.{2,}', '.', texto)
     texto = re.sub(r',+', ',', texto)
     texto = re.sub(r'([.!?])\s*[,.]', r'\1', texto)
 
     return texto.strip()
 
-def limpiar_texto(texto: str) -> str:
 
-    # 1. Letras capitulares — unir letra suelta con la palabra siguiente (C\naía → Caía)
+def insertar_pausas_sml(texto: str) -> str:
+    # Pausa larga después de punto que cierra diálogo
+    texto = re.sub(r'([.!?])\s+(?=—)', r'\1 [BREAK_LONG] ', texto)
+
+    # Pausa corta después de punto seguido de mayúscula
+    texto = re.sub(r'([.!?])\s+(?=[A-ZÁÉÍÓÚÑÜ])', r'\1 [BREAK_SHORT] ', texto)
+
+    # Pausa corta después de dos puntos
+    texto = re.sub(r'(:\s*)(?=[—"A-ZÁÉÍÓÚÑÜ])', r'\1[BREAK_SHORT] ', texto)
+
+    # Limpiar marcadores duplicados
+    texto = re.sub(r'(\[BREAK_(?:SHORT|LONG)\]\s*){2,}', r'\1', texto)
+    texto = re.sub(r'\s+', ' ', texto)
+
+    return texto.strip()
+
+
+def limpiar_texto(texto: str) -> str:
+    # 1. Letras capitulares
     texto = re.sub(r'(?m)^([A-ZÁÉÍÓÚÑÜ])\n([a-záéíóúñü])', r'\1\2', texto)
 
-    # 2. Guiones de diálogo — convertir en coma para mantener fluidez
+    # 2. Guiones de diálogo → coma
     texto = texto.replace("\u2014", ",").replace("\u2013", ",")
     texto = re.sub(r'\s*—\s*', ', ', texto)
     texto = re.sub(r',\s*,', ',', texto)
@@ -161,16 +165,16 @@ def limpiar_texto(texto: str) -> str:
     texto = texto.replace("\u201c", '"').replace("\u201d", '"')
     texto = texto.replace("\u2018", "'").replace("\u2019", "'")
 
-    # 5. Letras capitulares sueltas en línea propia
+    # 5. Letras capitulares sueltas
     texto = re.sub(r'(?m)^\s*[A-ZÁÉÍÓÚÑÜ]\s*$', '', texto)
 
-    # 6. Títulos en mayúsculas — línea sola en mayúsculas → pausa
+    # 6. Títulos en mayúsculas
     texto = re.sub(r'\n([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s]{2,})\n', r', \1, ', texto)
 
-    # 7. Saltos de línea dobles → pausa
+    # 7. Saltos dobles → pausa
     texto = re.sub(r'\n{2,}', '. ', texto)
 
-    # 8. Saltos de línea simples → espacio
+    # 8. Saltos simples → espacio
     texto = re.sub(r'\n', ' ', texto)
 
     # 9. Espacios múltiples
@@ -183,13 +187,12 @@ def limpiar_texto(texto: str) -> str:
     # 11. Espacios antes de puntuación
     texto = re.sub(r'\s+([.,;:])', r'\1', texto)
 
-    # 12. Puntuación doble o mal combinada
+    # 12. Puntuación doble
     texto = re.sub(r'[,\.]+([,\.])', r'\1', texto)
     texto = re.sub(r',\.', '.', texto)
     texto = re.sub(r'\.,', '.', texto)
     texto = re.sub(r'\.{2,}', '.', texto)
     texto = re.sub(r',+', ',', texto)
-    texto = re.sub(r'\?\.', '?', texto)
     texto = re.sub(r'\?\.', '?', texto)
 
     # 13. Números romanos solos

@@ -76,6 +76,7 @@ class Parte(Base):
     fecha_procesado   = Column(DateTime, nullable=True)
     tarea_id          = Column(String, nullable=True)
     titulo_parte      = Column(String, nullable=True)
+    orden_procesamiento = Column(Integer, nullable=True)
 
     libro             = relationship("Libro", back_populates="partes")
 

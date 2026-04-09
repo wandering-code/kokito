@@ -49,24 +49,34 @@ def _recorrer_toc(toc, doc_por_href, capitulos, vistos):
 
 
 def _agregar_capitulo(titulo, href, doc_por_href, capitulos, vistos):
-    # Normalizar href: quitar fragmento (#ancla)
     href_base = href.split("#")[0]
 
-    # Evitar duplicados si la TOC apunta dos veces al mismo documento
     if href_base in vistos:
         return
     vistos.add(href_base)
 
-    # Buscar el documento — ebooklib puede tener el href con o sin prefijo
     item = doc_por_href.get(href_base)
     if item is None:
-        # Intentar con prefijo Text/
         item = doc_por_href.get("Text/" + href_base)
     if item is None:
         return
 
     soup = BeautifulSoup(item.get_content(), "html.parser")
-    texto = soup.get_text(separator=" ", strip=True)
+
+    partes = []
+    for elemento in soup.find_all(["h1", "h2", "h3", "h4", "p", "div"]):
+        texto_elemento = elemento.get_text(separator=" ", strip=True)
+        if not texto_elemento:
+            continue
+
+        # Títulos — añadir salto doble antes y después para que
+        # limpiar_texto_local los trate como pausa larga
+        if elemento.name in ["h1", "h2", "h3", "h4"]:
+            partes.append(f"\n\n{texto_elemento}\n\n")
+        else:
+            partes.append(texto_elemento)
+
+    texto = "\n\n".join(p.strip() for p in partes if p.strip())
     palabras = len(texto.split())
 
     capitulos.append({

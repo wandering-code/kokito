@@ -51,7 +51,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
                 siguiente = db.query(Parte).filter(
                     Parte.libro_id == parte.libro_id,
                     Parte.estado == EstadoParte.pendiente
-                ).order_by(Parte.numero_parte).first()
+                ).order_by(Parte.orden_procesamiento).first()
                 if siguiente:
                     nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)
                     siguiente.tarea_id = nueva_tarea.id
@@ -108,7 +108,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
         siguiente = db.query(Parte).filter(
             Parte.libro_id == parte.libro_id,
             Parte.estado == EstadoParte.pendiente
-        ).order_by(Parte.numero_parte).first()
+        ).order_by(Parte.orden_procesamiento).first()
 
         if siguiente:
             nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)

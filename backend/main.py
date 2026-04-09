@@ -70,12 +70,18 @@ def analizar_y_registrar_libro(archivo_bytes, titulo, autor, paginas_por_parte, 
         inicio = max(0, min(capitulo_inicio, len(capitulos) - 1))
         indices_rotados = list(range(inicio, len(capitulos))) + list(range(0, inicio))
 
-        for numero_parte, indice_cap in enumerate(indices_rotados, start=1):
+        print(f"DEBUG inicio calculado: {inicio}, total capitulos: {len(capitulos)}")
+        print(f"DEBUG indices_rotados[:5]: {indices_rotados[:5]}")
+
+        for indice_cap in range(len(capitulos)):
             cap = capitulos[indice_cap]
+            numero_parte = indice_cap + 1
+            orden = indices_rotados.index(indice_cap) + 1
             parte = Parte(
                 libro_id=libro.id,
                 numero_parte=numero_parte,
-                pagina_inicio=indice_cap,   # índice real del capítulo en el EPUB
+                orden_procesamiento=orden,
+                pagina_inicio=indice_cap,
                 pagina_fin=indice_cap,
                 titulo_parte=cap["titulo"] or None,
                 estado=EstadoParte.pendiente
@@ -120,6 +126,11 @@ def analizar_y_registrar_libro(archivo_bytes, titulo, autor, paginas_por_parte, 
             db.add(parte)
             pagina_actual += paginas_por_parte
             numero_parte += 1
+
+    # Para PDF, orden_procesamiento == numero_parte
+    if formato == "pdf":
+        for parte in db.query(Parte).filter(Parte.libro_id == libro.id).all():
+            parte.orden_procesamiento = parte.numero_parte
 
     db.commit()
     db.refresh(libro)
@@ -175,6 +186,8 @@ async def convertir(
             portada_url=portada_url, ruta_pdf=ruta_pdf, ruta_voz=ruta_voz,
             nombre_archivo=nombre_archivo, capitulo_inicio=capitulo_inicio
         )
+
+        print(f"DEBUG capitulo_inicio recibido: {capitulo_inicio}")
 
         if not es_nuevo:
             partes = db.query(Parte).filter(Parte.libro_id == libro.id).all()
@@ -342,6 +355,7 @@ def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
                     "estado": p.estado,
                     "duracion_segundos": p.duracion_segundos,
                     "escuchada": p.id in escuchadas,
+                    "ruta_mp3": p.ruta_mp3,
                 }
                 for p in partes
             ]

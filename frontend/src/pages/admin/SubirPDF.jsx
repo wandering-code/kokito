@@ -6,6 +6,7 @@ const VOCES_PREDEFINIDAS = [
   { id: "voz_masculina_grave.mp3", nombre: "Voz 1", descripcion: "Masculina · grave" },
   { id: "voz_masculina_media.mp3", nombre: "Voz 2", descripcion: "Masculina · media" },
   { id: "voz_femenina_suave.mp3",  nombre: "Voz 3", descripcion: "Femenina · suave" },
+  { id: "voz_masculina_joven.mp3",  nombre: "Voz 4", descripcion: "Masculina · joven" },
 ]
 
 const GENEROS = [

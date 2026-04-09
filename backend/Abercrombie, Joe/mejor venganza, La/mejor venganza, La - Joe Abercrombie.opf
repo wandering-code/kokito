@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='utf-8'?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
+    <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+        <dc:identifier opf:scheme="calibre" id="calibre_id">2</dc:identifier>
+        <dc:identifier opf:scheme="uuid" id="uuid_id">97c74f0c-dec1-4fa7-9bf9-14976c8a44e9</dc:identifier>
+        <dc:title>La mejor venganza</dc:title>
+        <dc:creator opf:file-as="Abercrombie, Joe" opf:role="aut">Joe Abercrombie</dc:creator>
+        <dc:contributor opf:file-as="calibre" opf:role="bkp">calibre (9.6.0) [https://calibre-ebook.com]</dc:contributor>
+        <dc:date>2009-05-31T22:00:00+00:00</dc:date>
+        <dc:description>&lt;p&gt;La guerra puede ser un infierno, pero para Monza Murcatto, la Serpiente de Talins, a sueldo del duque Orso, también es una forma excelente de hacer dinero. Sus victorias la han hecho muy popular, quizá demasiado para el gusto de Orso. Traicionada y dada por muerta, la recompensa de Murcatto es un cuerpo desfigurado y una sed de venganza que no se detendrá ante nada.&lt;/p&gt;&lt;p&gt;Sus aliados son el borracho menos fiable de Styria, el envenenador más traicionero de Styria, un asesino en serie obsesionado con los números y un bárbaro que quiere enderezar su vida. Entre sus enemigos están los más poderosos del país, y eso antes de que el duque Orso envíe al hombre más peligroso para acabar con ella…&lt;/p&gt;&lt;p&gt;&lt;cite&gt;La mejor venganza&lt;/cite&gt; es una novela independiente que tiene todas las características que hicieron un éxito de la trilogía «La Primera Ley».&lt;/p&gt;</dc:description>
+        <dc:publisher>ePubLibre</dc:publisher>
+        <dc:identifier opf:scheme="EPL">4234</dc:identifier>
+        <dc:identifier opf:scheme="REVISION">2.9</dc:identifier>
+        <dc:language>spa</dc:language>
+        <dc:subject>Novela</dc:subject>
+        <dc:subject>Aventuras</dc:subject>
+        <dc:subject>Fantástico</dc:subject>
+        <meta name="calibre:series" content="Historias del Mundo de La Primera Ley"/>
+        <meta name="calibre:series_index" content="1"/>
+        <meta name="calibre:timestamp" content="2026-04-09T16:14:07.598134+00:00"/>
+        <meta name="calibre:title_sort" content="mejor venganza, La"/>
+    </metadata>
+    <guide>
+        <reference type="cover" title="Portada" href="mejor venganza, La - Joe Abercrombie.jpg"/>
+    </guide>
+</package>
