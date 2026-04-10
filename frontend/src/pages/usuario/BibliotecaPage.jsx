@@ -42,17 +42,13 @@ export default function BibliotecaPage() {
   }
 
   function esCompleto(libro) {
-    if (!Array.isArray(libro.partes) || libro.partes.length === 0) return true
-    return libro.partes.every(p => p.estado === "listo")
+    if (!Array.isArray(libro.partes_estado) || libro.partes_estado.length === 0) return true
+    return libro.partes_estado.every(p => p.estado === "listo")
   }
 
   function estadoLibro(libro) {
-    const p = progreso[libro.id]
-    if (!p) return "nuevo"
-    if (p.completado) return "completado"
-    return "progreso"
+      return libro.estado_usuario || "nuevo"
   }
-
   function porcentajeProgreso(libro) {
     const p = progreso[libro.id]
     if (!p || !libro.partes || libro.partes === 0) return 0
@@ -117,7 +113,7 @@ export default function BibliotecaPage() {
                     <div className="bib-card-badges">
                       <span className={`bib-badge ${estado}`}>
                         {estado === "progreso"   && "En progreso"}
-                        {estado === "nuevo"      && "Nuevo"}
+                        {estado === "nuevo"      && "Sin empezar"}
                         {estado === "completado" && "Completado"}
                       </span>
                       {!completo && (
@@ -150,7 +146,10 @@ export default function BibliotecaPage() {
                     <div className="bib-row-title">{libro.titulo}</div>
                     {libro.autor && <div className="bib-row-author">{libro.autor}</div>}
                     <div className="bib-row-meta">
-                      {libro.num_paginas} páginas · {libro.partes} partes
+                      {libro.formato === "epub"
+                        ? `${libro.num_paginas} ${libro.num_paginas === 1 ? "capítulo" : "capítulos"}`
+                        : `${libro.num_paginas} páginas · ${libro.partes} partes`
+                      }
                       {!completo && <span className="bib-meta-parcial"> · En proceso</span>}
                     </div>
                     {estado === "progreso" && (
@@ -163,8 +162,8 @@ export default function BibliotecaPage() {
                     className={`bib-row-action ${estado === "completado" ? "completado" : ""}`}
                     onClick={e => { e.stopPropagation(); irAlLibro(libro) }}
                   >
-                    {estado === "progreso"   && "Continuar"}
-                    {estado === "nuevo"      && "Empezar"}
+                    {estado === "progreso"   && "En progreso"}
+                    {estado === "nuevo"      && "Sin empezar"}
                     {estado === "completado" && "Completado"}
                   </button>
                 </div>

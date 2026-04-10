@@ -8,6 +8,10 @@ import NavBar from "./components/NavBar"
 import RegistroPage from "./pages/RegistroPage"
 import AdminUsuariosPage from "./pages/admin/AdminUsuariosPage"
 import SpinnerGato from "./components/SpinnerGato"
+import AdminNovedadesPage from "./pages/admin/AdminNovedadesPage"
+import ModalNovedades from "./components/ModalNovedades"
+import SolicitudesPage from "./pages/usuario/SolicitudesPage"
+import AdminSolicitudesPage from "./pages/admin/AdminSolicitudesPage"
 
 function RutaProtegida({ children }) {
   const { usuario, cargando } = useAuth()
@@ -20,6 +24,7 @@ function RutaProtegida({ children }) {
 
   return (
     <>
+      <ModalNovedades />
       <NavBar />
       <div className="contenido-principal">
         {children}
@@ -78,6 +83,28 @@ export default function App() {
       <Route path="/libro/:id" element={
         <RutaProtegida>
           <LibroPage />
+        </RutaProtegida>
+      } />
+
+      <Route path="/admin/novedades" element={
+        <RutaProtegida>
+          <RutaAdmin>
+            <AdminNovedadesPage />
+          </RutaAdmin>
+        </RutaProtegida>
+      } />
+
+      <Route path="/solicitudes" element={
+        <RutaProtegida>
+          <SolicitudesPage />
+        </RutaProtegida>
+      } />
+
+      <Route path="/admin/solicitudes" element={
+        <RutaProtegida>
+          <RutaAdmin>
+            <AdminSolicitudesPage />
+          </RutaAdmin>
         </RutaProtegida>
       } />
 

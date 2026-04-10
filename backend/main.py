@@ -12,7 +12,7 @@ from fastapi import Response, Depends
 from auth import hashear_password, verificar_password, crear_token, obtener_usuario_actual, requerir_admin, obtener_usuario_opcional
 import os
 from datetime import datetime, timezone
-from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario, Libro, Parte, EstadoParte
+from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario, Libro, Parte, EstadoParte, Novedad, NovedadVista, Solicitud, EstadoSolicitud
 
 app = FastAPI()
 
@@ -292,21 +292,48 @@ def listar_libros():
 
 
 @app.get("/libros/publicos")
-def listar_libros_publicos():
+def listar_libros_publicos(usuario = Depends(obtener_usuario_opcional)):
     db = SessionLocal()
     try:
         libros = db.query(Libro).filter(Libro.visible == True).order_by(Libro.fecha_subida.desc()).all()
-        return [
-            {
+        resultado = []
+        for l in libros:
+            partes = db.query(Parte).filter(Parte.libro_id == l.id).order_by(Parte.numero_parte).all()
+            partes_con_audio = [p for p in partes if p.ruta_mp3]
+
+            estado_usuario = "nuevo"
+            if usuario and partes_con_audio:
+                ids_partes = [p.id for p in partes_con_audio]
+
+                # ¿Ha reproducido algo?
+                tiene_progreso = db.query(ProgresoParte).filter(
+                    ProgresoParte.usuario_id == usuario.id,
+                    ProgresoParte.parte_id.in_(ids_partes),
+                    ProgresoParte.segundo_actual > 0
+                ).first()
+
+                if tiene_progreso:
+                    # ¿Está escuchada la última parte con audio?
+                    ultima_parte = partes_con_audio[-1]
+                    completado = db.query(EstadoParteUsuario).filter(
+                        EstadoParteUsuario.usuario_id == usuario.id,
+                        EstadoParteUsuario.parte_id == ultima_parte.id,
+                        EstadoParteUsuario.estado == EstadoPartUsuario.escuchada
+                    ).first()
+                    estado_usuario = "completado" if completado else "progreso"
+
+            resultado.append({
                 "id": l.id,
                 "titulo": l.titulo,
                 "autor": l.autor,
                 "num_paginas": l.num_paginas,
-                "partes": db.query(Parte).filter(Parte.libro_id == l.id).count(),
-                "portada_url": l.portada_url
-            }
-            for l in libros
-        ]
+                "partes": len(partes),
+                "portada_url": l.portada_url,
+                "formato": l.formato,
+                "estado_usuario": estado_usuario,
+                "partes_estado": [{"estado": p.estado.value} for p in partes]
+            })
+        return resultado
     finally:
         db.close()
 
@@ -345,6 +372,7 @@ def detalle_libro(libro_id: int, usuario = Depends(obtener_usuario_opcional)):
             "genero": libro.genero,
             "editorial": libro.editorial,
             "isbn": libro.isbn,
+            "formato": libro.formato,
             "partes": [
                 {
                     "id": p.id,
@@ -436,6 +464,35 @@ def logout(response: Response):
 def me(usuario: Usuario = Depends(obtener_usuario_actual)):
     return {"id": usuario.id, "nombre": usuario.nombre, "email": usuario.email, "rol": usuario.rol}
 
+
+def _enviar_email_libro_disponible(email: str, nombre: str, titulo: str):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
+
+    if not SMTP_USER or not SMTP_PASS:
+        return
+
+    try:
+        msg = MIMEText(
+            f"Hola {nombre},\n\n"
+            f"El libro que solicitaste, \"{titulo}\", ya está disponible en la biblioteca. "
+            f"¡Ya puedes empezar a escucharlo!\n\n"
+            f"kokito.wanderingcode.dev"
+        )
+        msg["Subject"] = f"[Kokito] \"{titulo}\" ya está disponible"
+        msg["From"] = SMTP_USER
+        msg["To"] = email
+        with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, email, msg.as_string())
+    except Exception as e:
+        print(f"⚠️  Error enviando email: {e}")
+
+
 @app.patch("/libros/{libro_id}/visible")
 def cambiar_visibilidad(libro_id: int, visible: bool):
     db = SessionLocal()
@@ -445,6 +502,19 @@ def cambiar_visibilidad(libro_id: int, visible: bool):
             raise HTTPException(status_code=404, detail="Libro no encontrado")
         libro.visible = visible
         db.commit()
+
+        # Si se publica, avisar a los usuarios con solicitudes aceptadas
+        if visible:
+            from sqlalchemy import func
+            solicitudes = db.query(Solicitud).filter(
+                func.lower(Solicitud.titulo_solicitado) == func.lower(libro.titulo),
+                Solicitud.estado == EstadoSolicitud.aceptada
+            ).all()
+            for s in solicitudes:
+                u = db.query(Usuario).filter(Usuario.id == s.usuario_id).first()
+                if u:
+                    _enviar_email_libro_disponible(u.email, u.nombre, libro.titulo)
+
         return {"id": libro.id, "visible": libro.visible}
     finally:
         db.close()
@@ -874,6 +944,71 @@ def _enviar_email_usuario(email: str, nombre: str, aprobado: bool, desactivado: 
         print(f"⚠️  Error enviando email: {e}")
 
 
+def _enviar_email_nueva_solicitud(nombre: str, email: str, titulo: str, autor: str, notas: str):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "danielgarciaalbert@icloud.com")
+
+    if not SMTP_USER or not SMTP_PASS:
+        return
+
+    cuerpo = (
+        f"Nueva solicitud de libro en Kokito:\n\n"
+        f"Usuario: {nombre} ({email})\n"
+        f"Título: {titulo}\n"
+    )
+    if autor:
+        cuerpo += f"Autor: {autor}\n"
+    if notas:
+        cuerpo += f"Notas: {notas}\n"
+
+    try:
+        msg = MIMEText(cuerpo)
+        msg["Subject"] = f"[Kokito] Nueva solicitud: {titulo}"
+        msg["From"] = SMTP_USER
+        msg["To"] = ADMIN_EMAIL
+        with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
+    except Exception as e:
+        print(f"⚠️  Error enviando email: {e}")
+
+
+def _enviar_email_estado_solicitud(email: str, nombre: str, titulo: str, estado: str):
+    import smtplib
+    from email.mime.text import MIMEText
+
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASS = os.getenv("SMTP_PASS")
+
+    if not SMTP_USER or not SMTP_PASS:
+        return
+
+    textos = {
+        "aceptada":  ("Tu solicitud ha sido aceptada", f"Hola {nombre},\n\nTu solicitud de \"{titulo}\" ha sido aceptada. Pronto estará disponible en la biblioteca.\n\nkokito.wanderingcode.dev"),
+        "rechazada": ("Tu solicitud no ha sido aceptada", f"Hola {nombre},\n\nTu solicitud de \"{titulo}\" no ha podido ser aceptada en este momento.\n\nSi tienes dudas, contacta con el administrador."),
+        "pendiente": ("Tu solicitud está en revisión", f"Hola {nombre},\n\nTu solicitud de \"{titulo}\" está siendo revisada. Te avisaremos cuando haya novedades.\n\nkokito.wanderingcode.dev"),
+    }
+
+    asunto, cuerpo = textos.get(estado, (f"Actualización de tu solicitud", f"El estado de tu solicitud \"{titulo}\" ha cambiado a: {estado}."))
+
+    try:
+        msg = MIMEText(cuerpo)
+        msg["Subject"] = f"[Kokito] {asunto}"
+        msg["From"] = SMTP_USER
+        msg["To"] = email
+        with smtplib.SMTP("smtp.mail.me.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, email, msg.as_string())
+    except Exception as e:
+        print(f"⚠️  Error enviando email: {e}")
+
+
 @app.post("/portadas", response_model=None)
 async def subir_portada(imagen: UploadFile = File(...), usuario=Depends(requerir_admin)):
     os.makedirs(PORTADAS_DIR, exist_ok=True)
@@ -977,3 +1112,275 @@ async def analizar_epub(epub: UploadFile = File(...), usuario=Depends(requerir_a
         {"indice": i, "titulo": c["titulo"], "palabras": c["palabras"]}
         for i, c in enumerate(capitulos)
     ]
+
+# ── Novedades ──
+
+@app.get("/novedades/pendientes", response_model=None)
+def novedades_pendientes(usuario: Usuario = Depends(obtener_usuario_actual)):
+    db = SessionLocal()
+    try:
+        vistas = {
+            r.novedad_id
+            for r in db.query(NovedadVista).filter(
+                NovedadVista.usuario_id == usuario.id
+            ).all()
+        }
+        pendientes = db.query(Novedad).filter(
+            Novedad.activa == True,
+            ~Novedad.id.in_(vistas) if vistas else True
+        ).order_by(Novedad.fecha.asc()).all()
+
+        return [
+            {
+                "id": n.id,
+                "titulo": n.titulo,
+                "contenido": n.contenido,
+                "fecha": n.fecha
+            }
+            for n in pendientes
+        ]
+    finally:
+        db.close()
+
+
+@app.post("/novedades/marcar-vistas", response_model=None)
+def marcar_novedades_vistas(
+    ids: list[int],
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        ya_vistas = {
+            r.novedad_id
+            for r in db.query(NovedadVista).filter(
+                NovedadVista.usuario_id == usuario.id,
+                NovedadVista.novedad_id.in_(ids)
+            ).all()
+        }
+        for novedad_id in ids:
+            if novedad_id not in ya_vistas:
+                db.add(NovedadVista(
+                    novedad_id=novedad_id,
+                    usuario_id=usuario.id
+                ))
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.get("/admin/novedades", response_model=None)
+def listar_novedades(usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        novedades = db.query(Novedad).order_by(Novedad.fecha.desc()).all()
+        total_usuarios = db.query(Usuario).filter(
+            Usuario.aprobado == True,
+            Usuario.rol == "usuario"
+        ).count()
+        ids_usuarios = {
+            u.id for u in db.query(Usuario).filter(
+                Usuario.aprobado == True,
+                Usuario.rol == "usuario"
+            ).all()
+        }
+        return [
+            {
+                "id": n.id,
+                "titulo": n.titulo,
+                "contenido": n.contenido,
+                "fecha": n.fecha,
+                "activa": n.activa,
+                "vistas": db.query(NovedadVista).filter(
+                    NovedadVista.novedad_id == n.id,
+                    NovedadVista.usuario_id.in_(ids_usuarios)
+                ).count()
+            }
+            for n in novedades
+        ]
+    finally:
+        db.close()
+
+
+@app.post("/admin/novedades", response_model=None)
+def crear_novedad(
+    titulo: str = Form(...),
+    contenido: str = Form(...),
+    usuario=Depends(requerir_admin)
+):
+    db = SessionLocal()
+    try:
+        novedad = Novedad(titulo=titulo, contenido=contenido)
+        db.add(novedad)
+        db.commit()
+        db.refresh(novedad)
+
+        # Marcarla como vista para el admin que la crea
+        db.add(NovedadVista(novedad_id=novedad.id, usuario_id=usuario.id))
+        db.commit()
+
+        return {"ok": True, "id": novedad.id}
+    finally:
+        db.close()
+
+
+@app.delete("/admin/novedades/{novedad_id}", response_model=None)
+def borrar_novedad(novedad_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        db.query(NovedadVista).filter(
+            NovedadVista.novedad_id == novedad_id
+        ).delete(synchronize_session=False)
+        novedad = db.query(Novedad).filter(Novedad.id == novedad_id).first()
+        if not novedad:
+            raise HTTPException(status_code=404, detail="Novedad no encontrada")
+        db.delete(novedad)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.get("/admin/novedades/{novedad_id}/vistas", response_model=None)
+def vistas_novedad(novedad_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        registros = db.query(NovedadVista).filter(
+            NovedadVista.novedad_id == novedad_id
+        ).all()
+        ids_que_vieron = {r.usuario_id for r in registros}
+
+        todos = db.query(Usuario).filter(
+            Usuario.aprobado == True,
+            Usuario.rol == "usuario"
+        ).all()
+
+        ids_todos = {u.id for u in todos}
+        vistas_reales = len(ids_que_vieron & ids_todos)
+
+        return {
+            "vistas": vistas_reales,
+            "total_usuarios": len(todos),
+            "usuarios": [
+                {
+                    "id": u.id,
+                    "nombre": u.nombre,
+                    "email": u.email,
+                    "visto": u.id in ids_que_vieron
+                }
+                for u in todos
+            ]
+        }
+    finally:
+        db.close()
+
+
+# ── Solicitudes ──
+
+@app.post("/solicitudes", response_model=None)
+def crear_solicitud(
+    titulo_solicitado: str = Form(...),
+    autor: str = Form(""),
+    notas: str = Form(""),
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        solicitud = Solicitud(
+            usuario_id=usuario.id,
+            titulo_solicitado=titulo_solicitado,
+            autor=autor or None,
+            notas=notas or None,
+            estado=EstadoSolicitud.pendiente
+        )
+        db.add(solicitud)
+        db.commit()
+        db.refresh(solicitud)
+        _enviar_email_nueva_solicitud(usuario.nombre, usuario.email, titulo_solicitado, autor, notas)
+        return {"ok": True, "id": solicitud.id}
+    finally:
+        db.close()
+
+
+@app.get("/solicitudes/mias", response_model=None)
+def mis_solicitudes(usuario: Usuario = Depends(obtener_usuario_actual)):
+    db = SessionLocal()
+    try:
+        solicitudes = db.query(Solicitud).filter(
+            Solicitud.usuario_id == usuario.id
+        ).order_by(Solicitud.fecha.desc()).all()
+        return [
+            {
+                "id": s.id,
+                "titulo_solicitado": s.titulo_solicitado,
+                "autor": s.autor,
+                "notas": s.notas,
+                "estado": s.estado,
+                "fecha": s.fecha
+            }
+            for s in solicitudes
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/admin/solicitudes", response_model=None)
+def listar_solicitudes(usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        solicitudes = db.query(Solicitud).order_by(Solicitud.fecha.desc()).all()
+        resultado = []
+        for s in solicitudes:
+            u = db.query(Usuario).filter(Usuario.id == s.usuario_id).first()
+            resultado.append({
+                "id": s.id,
+                "titulo_solicitado": s.titulo_solicitado,
+                "autor": s.autor,
+                "notas": s.notas,
+                "estado": s.estado,
+                "fecha": s.fecha,
+                "usuario_nombre": u.nombre if u else "—",
+                "usuario_email": u.email if u else "—"
+            })
+        return resultado
+    finally:
+        db.close()
+
+
+@app.patch("/admin/solicitudes/{solicitud_id}/estado", response_model=None)
+def cambiar_estado_solicitud(
+    solicitud_id: int,
+    estado: str = Form(...),
+    usuario=Depends(requerir_admin)
+):
+    db = SessionLocal()
+    try:
+        s = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not s:
+            raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+        estado_anterior = s.estado
+        s.estado = estado
+        db.commit()
+
+        u = db.query(Usuario).filter(Usuario.id == s.usuario_id).first()
+        if u:
+            _enviar_email_estado_solicitud(
+                u.email, u.nombre, s.titulo_solicitado, estado
+            )
+        return {"ok": True, "estado": s.estado}
+    finally:
+        db.close()
+
+
+@app.delete("/admin/solicitudes/{solicitud_id}", response_model=None)
+def borrar_solicitud(solicitud_id: int, usuario=Depends(requerir_admin)):
+    db = SessionLocal()
+    try:
+        s = db.query(Solicitud).filter(Solicitud.id == solicitud_id).first()
+        if not s:
+            raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+        db.delete(s)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()

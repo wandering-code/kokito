@@ -72,7 +72,7 @@ def obtener_usuario_opcional(request: Request):
         return None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        usuario_id = payload.get("usuario_id")
+        usuario_id = int(payload.get("sub"))
         if not usuario_id:
             return None
         db = SessionLocal()

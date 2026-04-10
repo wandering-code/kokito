@@ -3800,3 +3800,99 @@ imágenes de EPUB que se marcan como `listo` pero sin MP3).
 - **Deploy en el mini PC** — `git pull` + `docker compose up --build` + `alembic upgrade head`
 - **Google Books API** — mejor cobertura que Open Library para libros en español
 - **Botón de cancelar** en la fila del libro en `ListaLibros`
+- **Coger info del epub si la tiene para facilitar el rellenado de datos al subir un libro**
+
+---
+
+## Sesión 25 — Mejoras de UI, estados de biblioteca, sistema de novedades y solicitudes
+
+### Lo que hemos construido
+
+- **Fix campo `num_paginas` en EPUB** — mostraba el número de capítulos como "páginas". Ahora muestra "X capítulos" o "X páginas" según el formato del libro
+- **Campo `formato` expuesto** en los endpoints `/libros/{id}` y `/libros/publicos`
+- **Estados de biblioteca reales** — badges "Sin empezar" / "En progreso" / "Completado" con colores gris / amarillo / verde basados en datos reales de BBDD
+- **Fix `obtener_usuario_opcional`** — leía `usuario_id` del JWT pero el campo se llama `sub`. Todos los libros aparecían como "Sin empezar" para cualquier usuario
+- **Rediseño completo del reproductor flotante** — inspirado en Spotify, Apple Podcasts y Audible:
+  - Barra mini con portada, título del capítulo, nombre del libro y controles −15 / Play / +15 directamente
+  - Chevron separado para expandir/contraer sin confusión con los controles
+  - Panel expandido con scrubber grueso (6px), thumb grande (16px), tiempos a los lados
+  - Indicador "Cap. X / Y" centrado entre los tiempos
+  - Control de velocidad como botón que muestra la velocidad activa (ej. "1×") y despliega un menú hacia arriba con opciones 0.75× / 1× / 1.25× / 1.5× / 2×
+  - Menú de velocidad con `position: fixed` calculado desde el botón para evitar que el `overflow: hidden` del panel lo recorte
+- **Sistema de novedades completo**:
+  - Dos tablas nuevas en BBDD: `novedades` y `novedades_vistas`
+  - Panel de admin `/admin/novedades` — formulario para crear novedades, historial con contador de vistas, detalle expandible con usuarios en verde (visto) o rojo (no visto)
+  - El contador de vistas excluye al admin — solo cuenta usuarios con `rol == "usuario"`
+  - Al crear una novedad el admin la marca como vista automáticamente para no verla él mismo
+  - Modal global `ModalNovedades` en `RutaProtegida` — aparece al entrar si hay novedades pendientes
+  - Si hay varias novedades acumuladas se muestran todas juntas con separador y fecha
+  - Usuarios nuevos no ven novedades anteriores a su registro (se marcan vistas en el registro — pendiente de implementar, de momento el comportamiento es correcto porque solo ven las activas no vistas)
+  - Renderizado inteligente del contenido: líneas que empiezan por `- ` se convierten en `<ul><li>`, el resto en párrafos
+  - Bullet marrón (`·`) con `::before` en lugar del bullet por defecto del navegador
+- **Sistema de solicitudes completo**:
+  - Página `/solicitudes` para usuarios — formulario con título, autor, notas y selector de voz preferida con preview de audio
+  - La voz seleccionada se añade automáticamente a las notas al enviar
+  - Lista de solicitudes propias con estado visual (pendiente / aceptada / no aceptada)
+  - Panel de admin `/admin/solicitudes` — secciones "Pendientes" (con contador) e "Historial"
+  - Botones por solicitud: Aceptar / Marcar pendiente / Rechazar / Borrar
+  - Cada cambio de estado envía un email automático al usuario
+  - Email de nueva solicitud al admin cuando un usuario envía una
+- **Notificación automática al publicar un libro** — cuando el admin publica un libro (`PATCH /libros/{id}/visible`), se buscan solicitudes aceptadas con título similar (comparación `func.lower`) y se envía un email a cada usuario avisando de que ya está disponible
+- **Texto del email de solicitud aceptada mejorado** — indica que el libro ya está en proceso de conversión y que tardará unas horas
+- **Opción "Mis solicitudes" en el menú de perfil** — tanto en escritorio (desplegable) como en móvil (bottom sheet), con icono `MessageSquare` de Lucide
+- **Opción "Solicitudes" en el menú de admin** — junto a Libros, Usuarios y Novedades
+
+---
+
+### Archivos creados
+
+**Backend:**
+- Modelos `Novedad` y `NovedadVista` en `database.py`
+- Migración `novedades` — tablas `novedades` y `novedades_vistas`
+- Endpoints en `main.py`:
+  - `GET /novedades/pendientes`
+  - `POST /novedades/marcar-vistas`
+  - `GET /admin/novedades`
+  - `POST /admin/novedades`
+  - `DELETE /admin/novedades/{id}`
+  - `GET /admin/novedades/{id}/vistas`
+  - `POST /solicitudes`
+  - `GET /solicitudes/mias`
+  - `GET /admin/solicitudes`
+  - `PATCH /admin/solicitudes/{id}/estado`
+  - `DELETE /admin/solicitudes/{id}`
+- Funciones de email: `_enviar_email_nueva_solicitud`, `_enviar_email_estado_solicitud`, `_enviar_email_libro_disponible`
+
+**Frontend:**
+- `frontend/src/components/ModalNovedades.jsx` + `ModalNovedades.css`
+- `frontend/src/pages/admin/AdminNovedadesPage.jsx` + `AdminNovedadesPage.css`
+- `frontend/src/pages/admin/AdminSolicitudesPage.jsx` + `AdminSolicitudesPage.css`
+- `frontend/src/pages/usuario/SolicitudesPage.jsx` + `SolicitudesPage.css`
+
+**Archivos modificados:**
+- `backend/main.py` — endpoints nuevos, `cambiar_visibilidad` con notificación automática, `listar_novedades` con conteo correcto, `/libros/publicos` y `/libros/{id}` con campo `formato`
+- `backend/auth.py` — `obtener_usuario_opcional` corregido para leer `sub` en lugar de `usuario_id`
+- `frontend/src/App.jsx` — rutas nuevas: `/solicitudes`, `/admin/solicitudes`, `/admin/novedades`
+- `frontend/src/components/NavBar.jsx` — opciones Solicitudes (perfil) y Solicitudes + Novedades (admin), import `MessageSquare` y `Bell`
+- `frontend/src/pages/usuario/LibroPage.jsx` — reproductor flotante rediseñado, control de velocidad
+- `frontend/src/pages/usuario/LibroPage.css` — estilos nuevos del reproductor
+- `frontend/src/pages/usuario/BibliotecaPage.jsx` — estados reales, badge "Sin empezar", función `estadoLibro` simplificada
+- `frontend/src/pages/usuario/BibliotecaPage.css` — colores de badges
+
+---
+
+### Fixes aplicados
+
+- **`obtener_usuario_opcional` devolvía siempre `None`** — usaba `payload.get("usuario_id")` pero el JWT guarda el id en `"sub"`. Solución: `int(payload.get("sub"))`.
+- **Contador de novedades incluía al admin** — el endpoint `listar_novedades` contaba todos los registros de `novedades_vistas` sin filtrar por rol. Solución: cruzar con usuarios aprobados de rol `"usuario"`.
+- **Menú de velocidad recortado por `overflow: hidden`** — el panel expandido del reproductor recortaba el desplegable. Solución: `position: fixed` con coordenadas calculadas desde el botón via `getBoundingClientRect`.
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Marcar novedades como vistas en el registro** — los usuarios nuevos deberían tener todas las novedades existentes marcadas como vistas al crear la cuenta para no verlas al entrar por primera vez
+- **Deploy en el mini PC** — `git pull` + `docker compose up --build` + `alembic upgrade head`
+- **Google Books API** — mejor cobertura que Open Library para libros en español
+- **Botón de cancelar** en la fila del libro en `ListaLibros`
+- **Página de perfil de usuario** — modificación de nombre y contraseña

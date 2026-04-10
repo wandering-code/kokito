@@ -1,0 +1,222 @@
+.sol-root {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 20px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.sol-card {
+  background: #fff;
+  border: 1px solid var(--cr-warm);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sol-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cr-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sol-desc {
+  font-size: 13px;
+  color: var(--cr-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.sol-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sol-input {
+  padding: 10px 12px;
+  border: 1px solid var(--cr-warm);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--cr-dark);
+  background: var(--cr-bg);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sol-input:focus { border-color: var(--cr-border-focus); }
+
+.sol-textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--cr-warm);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--cr-dark);
+  background: var(--cr-bg);
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+  transition: border-color 0.15s;
+}
+.sol-textarea:focus { border-color: var(--cr-border-focus); }
+
+.sol-btn-enviar {
+  align-self: flex-end;
+  background: var(--cr-brown);
+  color: var(--cr-bg);
+  border: none;
+  border-radius: 8px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sol-btn-enviar:hover:not(:disabled) { background: var(--cr-dark); }
+.sol-btn-enviar:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.sol-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sol-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--cr-warm);
+  border-radius: 9px;
+  background: var(--cr-bg);
+}
+
+.sol-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sol-row-titulo {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cr-dark);
+}
+
+.sol-row-autor {
+  font-size: 12px;
+  color: var(--cr-muted);
+}
+
+.sol-row-fecha {
+  font-size: 11px;
+  color: var(--cr-tan);
+  margin-top: 2px;
+}
+
+.sol-estado {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sol-estado--pendiente {
+  background: rgba(139,107,74,0.08);
+  color: var(--cr-brown);
+  border: 1px solid rgba(139,107,74,0.2);
+}
+
+.sol-estado--aceptada {
+  background: rgba(74,110,76,0.1);
+  color: #4A6E4C;
+  border: 1px solid rgba(74,110,76,0.2);
+}
+
+.sol-estado--rechazada {
+  background: rgba(170,51,51,0.08);
+  color: #a33;
+  border: 1px solid rgba(170,51,51,0.15);
+}
+
+/* Voces */
+.sol-voces-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cr-dark);
+  margin-top: 4px;
+}
+
+.sol-voces-opcional {
+  font-weight: 400;
+  color: var(--cr-muted);
+  font-size: 12px;
+}
+
+.sol-voces {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 400px) {
+  .sol-voces { grid-template-columns: 1fr; }
+}
+
+.sol-voz {
+  border: 1px solid var(--cr-warm);
+  border-radius: 9px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--cr-bg);
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+}
+
+.sol-voz:hover { border-color: var(--cr-tan); }
+
+.sol-voz.selected {
+  border-color: var(--cr-brown);
+  background: rgba(139,107,74,0.06);
+}
+
+.sol-voz-nombre {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cr-dark);
+}
+
+.sol-voz-desc {
+  font-size: 11px;
+  color: var(--cr-muted);
+}
+
+.sol-voz-play {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(139,107,74,0.1);
+  border: 1px solid rgba(139,107,74,0.2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.sol-voz-play:hover { background: rgba(139,107,74,0.2); }

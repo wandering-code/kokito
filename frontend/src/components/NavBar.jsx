@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
-import { BookOpen, Settings, User, LogOut, ChevronDown, Users, Library } from "lucide-react"
+import { BookOpen, Settings, User, LogOut, ChevronDown, Users, Library, Bell, MessageSquare } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import "./NavBar.css"
 
@@ -65,6 +65,11 @@ export default function NavBar() {
     setTimeout(() => navigate(ruta), 200)
   }
 
+  function navegarPerfil(ruta) {
+    cerrarMenu()
+    setTimeout(() => navigate(ruta), 200)
+  }
+
   return (
     <>
       {/* Barra superior — escritorio */}
@@ -111,6 +116,22 @@ export default function NavBar() {
                       <Users size={14} />
                       Usuarios
                     </button>
+                    <div className="navbar-menu-separador" />
+                    <button
+                      className={`navbar-menu-item ${rutaActual.startsWith("/admin/solicitudes") ? "navbar-menu-item--activo" : ""}`}
+                      onMouseDown={() => navegarAdmin("/admin/solicitudes")}
+                    >
+                      <MessageSquare size={14} />
+                      Solicitudes
+                    </button>
+                    <div className="navbar-menu-separador" />
+                    <button
+                      className={`navbar-menu-item ${rutaActual.startsWith("/admin/novedades") ? "navbar-menu-item--activo" : ""}`}
+                      onMouseDown={() => navegarAdmin("/admin/novedades")}
+                    >
+                      <Bell size={14} />
+                      Novedades
+                    </button>
                   </div>
                 )}
               </div>
@@ -129,6 +150,14 @@ export default function NavBar() {
             {menuAbierto && (
               <div className={`navbar-menu ${menuCerrando ? "navbar-menu--saliendo" : ""}`}>
                 <div className="navbar-menu-nombre">{usuario?.nombre}</div>
+                <button
+                  className="navbar-menu-item"
+                  onMouseDown={() => navegarPerfil("/solicitudes")}
+                >
+                  <MessageSquare size={14} />
+                  Mis solicitudes
+                </button>
+                <div className="navbar-menu-separador" />
                 <button
                   className="navbar-menu-salir"
                   onMouseDown={(e) => { e.stopPropagation(); handleLogout() }}
@@ -186,6 +215,22 @@ export default function NavBar() {
                     <Users size={18} />
                     Usuarios
                   </button>
+                  <div className="navbar-menu-separador" />
+                  <button
+                    className={`navbar-menu-item ${rutaActual.startsWith("/admin/solicitudes") ? "navbar-menu-item--activo" : ""}`}
+                    onClick={() => navegarAdmin("/admin/solicitudes")}
+                  >
+                    <MessageSquare size={18} />
+                    Solicitudes
+                  </button>
+                  <div className="navbar-menu-separador" />
+                  <button
+                    className={`navbar-menu-item ${rutaActual.startsWith("/admin/novedades") ? "navbar-menu-item--activo" : ""}`}
+                    onClick={() => navegarAdmin("/admin/novedades")}
+                  >
+                    <Bell size={18} />
+                    Novedades
+                  </button>
                 </div>
               </>
             )}
@@ -211,6 +256,14 @@ export default function NavBar() {
                 <div className="navbar-sheet-handle" />
                 <div className="navbar-sheet-titulo">Mi cuenta</div>
                 <div className="navbar-menu-nombre">{usuario?.nombre}</div>
+                <button
+                  className="navbar-menu-item"
+                  onClick={() => navegarPerfil("/solicitudes")}
+                >
+                  <MessageSquare size={18} />
+                  Mis solicitudes
+                </button>
+                <div className="navbar-menu-separador" />
                 <button
                   className="navbar-menu-salir"
                   onClick={handleLogout}

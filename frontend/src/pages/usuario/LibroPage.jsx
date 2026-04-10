@@ -20,6 +20,23 @@ export default function LibroPage() {
   const audioRef = useRef(null)
   const [progresoPorParte, setProgresoPorParte] = useState({})
   const [sinopsisExpandida, setSinopsisExpandida] = useState(false)
+  const [velocidad, setVelocidad] = useState(1)
+  const [velMenuAbierto, setVelMenuAbierto] = useState(false)
+
+
+  const velBtnRef = useRef(null)
+  const [velPos, setVelPos] = useState({ bottom: 0, left: 0 })
+
+  function abrirVelMenu() {
+    if (velBtnRef.current) {
+      const rect = velBtnRef.current.getBoundingClientRect()
+      setVelPos({
+        bottom: window.innerHeight - rect.top + 8,
+        left: rect.left + rect.width / 2
+      })
+    }
+    setVelMenuAbierto(v => !v)
+  }
 
   function cargarLibro() {
     return fetch(`${API}/libros/${id}`, { credentials: "include" }).then(r => r.json())
@@ -161,6 +178,11 @@ export default function LibroPage() {
     return libro.partes.every(p => p.estado === "listo")
   }
 
+  function cambiarVelocidad(v) {
+    setVelocidad(v)
+    if (audioRef.current) audioRef.current.playbackRate = v
+  }
+
   if (!libro) return (
     <div className="libro-loading">
       <div className="libro-spinner" />
@@ -191,7 +213,10 @@ export default function LibroPage() {
               {libro.editorial && <span className="libro-tag">{libro.editorial}</span>}
             </div>
             <div className="libro-stats">
-              {libro.num_paginas} páginas · {libro.partes.filter(p => p.ruta_mp3 || p.estado !== "listo").length} partes
+              {libro.formato === "epub"
+                ? `${libro.num_paginas} ${libro.num_paginas === 1 ? "capítulo" : "capítulos"}`
+                : `${libro.num_paginas} páginas · ${libro.partes.filter(p => p.ruta_mp3 || p.estado !== "listo").length} partes`
+              }
             </div>
             {!esCompleto() && (
               <div className="libro-incompleto">En proceso de conversión</div>
@@ -291,6 +316,7 @@ export default function LibroPage() {
             src={`${API}/partes/${parteActiva.id}/audio`}
             onLoadedMetadata={() => {
               setDuracion(audioRef.current.duration)
+              audioRef.current.playbackRate = velocidad
               if (segundoInicial > 0) {
                 audioRef.current.currentTime = segundoInicial
                 setSegundoInicial(0)
@@ -309,40 +335,117 @@ export default function LibroPage() {
             }}
           />
 
-          <div className="player-flotante-mini" onClick={() => setPlayerExpandido(v => !v)}>
-            {libro.portada_url
-              ? <img className="player-flotante-cover" src={libro.portada_url} alt="" />
-              : <div className="player-flotante-cover-placeholder" />
-            }
-            <div className="player-flotante-titulo">
-              {parteActiva.titulo_parte || `Parte ${parteActiva.numero_parte}`}
+          {/* ── Barra mini ── */}
+          <div className="player-mini">
+            <div className="player-mini-progress" />
+            <div className="player-mini-inner">
+              <div
+                className="player-mini-info"
+                onClick={() => setPlayerExpandido(v => !v)}
+              >
+                {libro.portada_url
+                  ? <img className="player-mini-cover" src={libro.portada_url} alt="" />
+                  : <div className="player-mini-cover-placeholder" />
+                }
+                <div className="player-mini-texto">
+                  <div className="player-mini-capitulo">
+                    {parteActiva.titulo_parte || `Parte ${parteActiva.numero_parte}`}
+                  </div>
+                  <div className="player-mini-libro">{libro.titulo}</div>
+                </div>
+              </div>
+
+              <div className="player-mini-controles">
+                <button className="player-skip-mini" onClick={() => saltar(-15)}>
+                  <IconSkipBack />
+                </button>
+                <button className="player-play-btn-mini" onClick={togglePlay}>
+                  {reproduciendo ? <IconPause /> : <IconPlay />}
+                </button>
+                <button className="player-skip-mini" onClick={() => saltar(15)}>
+                  <IconSkipFwd />
+                </button>
+                <button
+                  className="player-mini-chevron"
+                  onClick={() => setPlayerExpandido(v => !v)}
+                >
+                  {playerExpandido ? <IconChevronDown /> : <IconChevronUp />}
+                </button>
+              </div>
             </div>
-            <button className="player-flotante-toggle">▲</button>
           </div>
 
-          <div className="player-flotante-body">
-            <div className="player-flotante-btns">
-              <button className="pbtn" onClick={() => saltar(-15)}><IconSkipBack /></button>
-              <button className="pbtn-play" onClick={togglePlay}>
-                {reproduciendo ? <IconPause /> : <IconPlay />}
-              </button>
-              <button className="pbtn" onClick={() => saltar(15)}><IconSkipFwd /></button>
-            </div>
-            <div className="player-flotante-scrubber">
-              <span className="player-time">{formatTiempo(tiempoActual)}</span>
-              <div
-                className="scrubber-track"
-                onClick={e => {
-                  e.stopPropagation()
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const ratio = (e.clientX - rect.left) / rect.width
-                  if (audioRef.current) audioRef.current.currentTime = ratio * duracion
-                }}
-              >
-                <div className="scrubber-fill" style={{ width: `${pct}%` }} />
-                <div className="scrubber-thumb" style={{ left: `${pct}%` }} />
+          {/* ── Panel expandido ── */}
+          <div className="player-body">
+            <div className="player-body-inner">
+
+              {/* Scrubber */}
+              <div className="player-scrubber-wrap">
+                <div
+                  className="player-scrubber-track"
+                  onClick={e => {
+                    e.stopPropagation()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const ratio = (e.clientX - rect.left) / rect.width
+                    if (audioRef.current) audioRef.current.currentTime = ratio * duracion
+                  }}
+                >
+                  <div className="player-scrubber-fill" style={{ width: `${pct}%` }} />
+                  <div className="player-scrubber-thumb" style={{ left: `${pct}%` }} />
+                </div>
+                <div className="player-scrubber-times">
+                  <span>{formatTiempo(tiempoActual)}</span>
+                  <div className="player-capitulo-info">
+                    {(() => {
+                      const partesConAudio = libro.partes.filter(p => p.ruta_mp3)
+                      const indice = partesConAudio.findIndex(p => p.id === parteActiva.id)
+                      return `Cap. ${indice + 1} / ${partesConAudio.length}`
+                    })()}
+                  </div>
+                  <span>{formatTiempo(duracion)}</span>
+                </div>
               </div>
-              <span className="player-time">{formatTiempo(duracion)}</span>
+
+              {/* Velocidad */}
+              <div className="player-extras">
+                <div className="player-vel-wrap">
+                  <button
+                    ref={velBtnRef}
+                    className="player-vel-actual"
+                    onClick={abrirVelMenu}
+                  >
+                    {velocidad === 1 ? "1×" : `${velocidad}×`}
+                  </button>
+                  {velMenuAbierto && (
+                    <>
+                      <div
+                        className="player-vel-overlay"
+                        onClick={() => setVelMenuAbierto(false)}
+                      />
+                      <div
+                        className="player-vel-menu"
+                        style={{
+                          position: "fixed",
+                          bottom: velPos.bottom,
+                          left: velPos.left,
+                          transform: "translateX(-50%)"
+                        }}
+                      >
+                        {[1, 1.25, 1.5, 2].map(v => (
+                          <button
+                            key={v}
+                            className={`player-vel-opcion ${velocidad === v ? "activa" : ""}`}
+                            onClick={() => { cambiarVelocidad(v); setVelMenuAbierto(false) }}
+                          >
+                            {v === 1 ? "1×" : `${v}×`}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -396,6 +499,24 @@ function IconSkipFwd() {
       <polyline points="23 4 23 10 17 10"/>
       <path d="M20.49 15a9 9 0 1 1-.49-4.5"/>
       <text x="7.5" y="15.5" style={{fontSize:"6px", fill:"currentColor", stroke:"none", fontFamily:"sans-serif", fontWeight:"600"}}>15</text>
+    </svg>
+  )
+}
+
+function IconChevronUp() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="18 15 12 9 6 15"/>
+    </svg>
+  )
+}
+
+function IconChevronDown() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
     </svg>
   )
 }

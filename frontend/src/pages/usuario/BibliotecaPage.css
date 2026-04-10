@@ -263,3 +263,7 @@
 .bib-meta-parcial {
   color: var(--cr-tan);
 }
+
+.bib-badge.nuevo       { background: #e8e0d8; color: #9c8470; }
+.bib-badge.progreso    { background: #fef3c7; color: #92400e; }
+.bib-badge.completado  { background: #d1fae5; color: #065f46; }

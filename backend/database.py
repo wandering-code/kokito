@@ -156,5 +156,23 @@ class Conversion(Base):
     creado_en  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class Novedad(Base):
+    __tablename__ = "novedades"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    titulo       = Column(String, nullable=False)
+    contenido    = Column(String, nullable=False)
+    fecha        = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    activa       = Column(Boolean, default=True, nullable=False)
+
+class NovedadVista(Base):
+    __tablename__ = "novedades_vistas"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    novedad_id   = Column(Integer, ForeignKey("novedades.id"), nullable=False)
+    usuario_id   = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    fecha_vista  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def crear_tablas():
     Base.metadata.create_all(bind=engine)
