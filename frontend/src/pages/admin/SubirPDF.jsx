@@ -57,7 +57,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   const [vozSeleccionada, setVozSeleccionada]   = useState("voz_1")
   const [vozArchivo, setVozArchivo]             = useState(null)
   const [archivo, setArchivo]                   = useState(null)
-  const [formatoArchivo, setFormatoArchivo]     = useState(null) // "pdf" | "epub" | null
+  const [formatoArchivo, setFormatoArchivo]     = useState(null)
   const [capitulosEpub, setCapitulosEpub]       = useState([])
   const [capituloInicio, setCapituloInicio]     = useState(0)
   const [analizandoEpub, setAnalizandoEpub]     = useState(false)
@@ -69,6 +69,9 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
   const [buscando, setBuscando]                 = useState(false)
   const [portadaUrl, setPortadaUrl]             = useState("")
   const [portadaPreview, setPortadaPreview]     = useState("")
+  const [vocesVoicebox, setVocesVoicebox]       = useState([])
+  const [cargandoVoces, setCargandoVoces]       = useState(false)
+  const [vozVoiceboxId, setVozVoiceboxId]       = useState(null)
   const audioActivo  = useRef(null)
 
   useEffect(() => {
@@ -100,6 +103,19 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     comprobarProveedor()
     const intervalo = setInterval(comprobarProveedor, 5000)
     return () => clearInterval(intervalo)
+  }, [proveedor])
+
+  useEffect(() => {
+    if (proveedor !== "voicebox") return
+    setCargandoVoces(true)
+    fetch(`${API}/voces/voicebox`, { credentials: "include" })
+      .then(r => r.json())
+      .then(data => {
+        setVocesVoicebox(data)
+        if (data.length > 0) setVozVoiceboxId(data[0].id)
+      })
+      .catch(() => setVocesVoicebox([]))
+      .finally(() => setCargandoVoces(false))
   }, [proveedor])
 
   async function comprobarProveedor() {
@@ -209,6 +225,10 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
       }
     }
 
+    if (proveedor === "voicebox" && vozVoiceboxId) {
+      fd.append("voicebox_profile_id", vozVoiceboxId)
+    }
+
     const res = await fetch(`${API}/convertir`, {
       method: "POST", body: fd, credentials: "include"
     })
@@ -231,6 +251,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     setCapitulosEpub([]); setCapituloInicio(0)
     setVozSeleccionada("voz_1"); setProveedor("edge")
     setPortadaUrl(""); setPortadaPreview("")
+    setVocesVoicebox([]); setVozVoiceboxId(null)
   }
 
   async function buscarLibro() {
@@ -513,9 +534,14 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
                 onClick={() => setProveedor("local")}>
                 Coqui (IA local)
               </button>
+              <button className={`spdf-tts-btn ${proveedor === "voicebox" ? "active" : ""}`}
+                onClick={() => setProveedor("voicebox")}>
+                Voicebox
+              </button>
             </div>
           </div>
 
+          {/* Voces Coqui */}
           {proveedor === "local" && (
             <div className="spdf-coqui">
               <div className="spdf-coqui-title">Voz</div>
@@ -553,6 +579,31 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
                 <input type="file" accept=".mp3,.wav" style={{ display: "none" }}
                   onChange={e => { setVozArchivo(e.target.files[0]); setVozSeleccionada(null) }} />
               </label>
+            </div>
+          )}
+
+          {/* Voces Voicebox */}
+          {proveedor === "voicebox" && (
+            <div className="spdf-coqui">
+              <div className="spdf-coqui-title">Voz</div>
+              {cargandoVoces ? (
+                <p className="spdf-epub-analizando">Cargando voces…</p>
+              ) : vocesVoicebox.length === 0 ? (
+                <p className="spdf-epub-analizando">No se pudieron cargar las voces. ¿Está Voicebox abierto?</p>
+              ) : (
+                <div className="spdf-voces">
+                  {vocesVoicebox.map(voz => (
+                    <div
+                      key={voz.id}
+                      className={`spdf-voz ${vozVoiceboxId === voz.id ? "selected" : ""}`}
+                      onClick={() => setVozVoiceboxId(voz.id)}
+                    >
+                      <div className="spdf-voz-name">{voz.nombre}</div>
+                      <div className="spdf-voz-desc">{voz.idioma === "es" ? "Español" : voz.idioma}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>

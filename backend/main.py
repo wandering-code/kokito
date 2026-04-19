@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
+from tts.voicebox import VOICEBOX_URL
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
@@ -13,6 +14,7 @@ from auth import hashear_password, verificar_password, crear_token, obtener_usua
 import os
 from datetime import datetime, timezone
 from database import Usuario, ProgresoUsuario, ProgresoParte, EstadoParteUsuario, EstadoPartUsuario, Libro, Parte, EstadoParte, Novedad, NovedadVista, Solicitud, EstadoSolicitud
+import httpx
 
 app = FastAPI()
 
@@ -30,6 +32,7 @@ app.add_middleware(
 
 PORTADAS_DIR = "/app/portadas"
 PDFS_DIR = "/app/pdfs"
+VOICEBOX_URL = os.getenv("VOICEBOX_URL", "http://192.168.1.51:17493")
 
 def analizar_y_registrar_libro(archivo_bytes, titulo, autor, paginas_por_parte, db,
     sinopsis="", serie="", anio=None, genero="", editorial="", isbn="", portada_url="",
@@ -156,6 +159,7 @@ async def convertir(
     isbn: str = Form(""),
     portada_url: str = Form(""),
     capitulo_inicio: int = Form(0),
+    voicebox_profile_id: str = Form(""),
 ):
     archivo_bytes = await pdf.read()
     nombre_archivo = pdf.filename or ""
@@ -203,15 +207,12 @@ async def convertir(
             Parte.libro_id == libro.id
         ).order_by(Parte.numero_parte).all()
 
-        # Determinar qué parte encolar primero
-        # Para EPUB: empezar desde capitulo_inicio (índice base 0)
-        # Para PDF: siempre desde la primera parte
         if formato == "epub" and 0 < capitulo_inicio < len(partes):
             parte_inicio = partes[capitulo_inicio]
         else:
             parte_inicio = partes[0]
 
-        tarea = convertir_pdf.delay(proveedor, parte_inicio.id, voz_bytes)
+        tarea = convertir_pdf.delay(proveedor, parte_inicio.id, voz_bytes, voicebox_profile_id)
         parte_inicio.tarea_id = tarea.id
         parte_inicio.proveedor = proveedor
         parte_inicio.estado = EstadoParte.procesando
@@ -706,6 +707,25 @@ def marcar_escuchada(parte_id: int, usuario: Usuario = Depends(obtener_usuario_a
         return {"ok": True}
     finally:
         db.close()
+
+
+@app.get("/voces/voicebox")
+def voces_voicebox():
+    try:
+        response = httpx.get(f"{VOICEBOX_URL}/profiles", timeout=10)
+        response.raise_for_status()
+        perfiles = response.json()
+        return [
+            {
+                "id": p["id"],
+                "nombre": p["name"],
+                "idioma": p["language"]
+            }
+            for p in perfiles
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se puede conectar con Voicebox: {str(e)}")
+    
 
 VOCES_DIR = "/app/voces"
 

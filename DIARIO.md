@@ -3896,3 +3896,189 @@ imágenes de EPUB que se marcan como `listo` pero sin MP3).
 - **Google Books API** — mejor cobertura que Open Library para libros en español
 - **Botón de cancelar** en la fila del libro en `ListaLibros`
 - **Página de perfil de usuario** — modificación de nombre y contraseña
+
+---
+
+## Sesión 26 — Nuevo motor TTS: Voicebox
+
+### Objetivo de la sesión
+
+Sustituir Coqui XTTS v2 por Voicebox como motor TTS local del sobremesa,
+integrarlo en Kokito como nuevo proveedor, y hacer las primeras pruebas de calidad.
+
+---
+
+### Motivación
+
+Coqui XTTS v2 fue descartado definitivamente en sesiones anteriores por su
+inconsistencia en español y sus tiempos de procesado inviables (~13-14 horas
+por libro). Voicebox es un estudio de síntesis de voz open source basado en
+Qwen3-TTS, con soporte nativo de español, clonado de voz zero-shot y API REST
+lista para integrar.
+
+---
+
+### Instalación de Voicebox en el sobremesa Windows
+
+**Proyecto:** [jamiepine/voicebox](https://github.com/jamiepine/voicebox) v0.3.0
+
+**Hardware del sobremesa:**
+- GPU: NVIDIA GeForce RTX 3070 (8 GB VRAM)
+- CPU: Intel i7-11700F
+- RAM: 32 GB
+- SO: Windows 11
+- Usuario: `danie`
+
+**Pasos:**
+1. Descargar `Voicebox_0.3.0_x64-setup.exe` (368 MB) desde GitHub Releases
+2. Instalar con el instalador de Windows
+3. En el primer arranque, la app descarga el modelo Qwen3-TTS 1.7B (~4.3 GB) desde HuggingFace
+4. En Settings → GPU → Download CUDA backend (~2.7 GB) para activar aceleración RTX
+
+**Puertos:**
+- La app arranca su propio servidor interno en el puerto `17493`
+- Settings → General → "Allow network access" activado para acceso desde LAN
+
+**Acceso desde la red local:**
+- El servidor escucha en `0.0.0.0:17493` con "Allow network access" activado
+- Regla de firewall añadida: puerto TCP 17493 entrante permitido
+- Accesible desde el mini PC en `http://192.168.1.51:17493`
+
+**Modelos disponibles:**
+- `qwen-tts-1.7B` — modelo principal, multilingüe, 4.3 GB, **seleccionado**
+- `qwen-tts-0.6B` — versión ligera
+- `chatterbox-tts` — multilingüe alternativo
+- `luxtts` — solo inglés, rápido en CPU
+- Modelos Whisper para transcripción
+
+**Voces creadas:**
+- `voz_masculina_grave` — perfil con sample de referencia `voz_masculina_grave.mp3`
+- `voz_masculina_joven` — perfil con sample de referencia `voz_masculina_joven.mp3`
+
+---
+
+### Arquitectura de comunicación
+
+```
+Mini PC (Kokito worker)
+  → POST /generate/stream al sobremesa (bloquea hasta completar)
+  → recibe WAV completo en la respuesta HTTP
+  → guarda en disco y marca parte como lista
+```
+
+Se usa `/generate/stream` en lugar de `/generate` + polling porque:
+- `/generate` marca `status: completed` antes de que el audio esté en disco
+  (condición de carrera con los chunks internos de Voicebox)
+- `/generate/stream` bloquea hasta que todos los chunks están generados y
+  devuelve el WAV completo en la respuesta
+
+**Timeout:** 2400 segundos (40 min) para dar margen a capítulos muy largos.
+
+---
+
+### Archivos nuevos y modificados
+
+**`backend/tts/voicebox.py`** — nuevo módulo TTS para Voicebox:
+- Extracción de texto desde PDF o recepción de `texto_directo` (EPUB)
+- Llamada a `POST /generate/stream` con el texto completo del capítulo
+- Recibe el WAV directamente sin polling
+- Acepta `profile_id` como parámetro (elegido por el admin en el formulario)
+- Fallback a `VOICEBOX_PROFILE_ID` del entorno si no se pasa ninguno
+
+**`backend/tasks.py`:**
+- Nuevo parámetro `voicebox_profile_id: str = ""`
+- Bloques `elif proveedor == "voicebox"` en los flujos PDF y EPUB
+- `voicebox_profile_id` propagado al encolar la siguiente parte
+
+**`backend/main.py`:**
+- Nuevo parámetro `voicebox_profile_id: str = Form("")` en `/convertir`
+- Pasado a `convertir_pdf.delay`
+- Nuevo endpoint `GET /voces/voicebox` — llama a `GET /profiles` del sobremesa
+  y devuelve lista de voces disponibles en tiempo real
+- El endpoint va **antes** de `GET /voces/{nombre}` para evitar conflicto de rutas
+
+**`backend/tts/text_utils.py`:**
+- Nueva función `limpiar_texto_voicebox` — preprocesado específico para Qwen3-TTS
+- A diferencia de `limpiar_texto`, **preserva los saltos de línea dobles** entre
+  párrafos para que Qwen3 los interprete como pausas largas
+- Preserva los guiones de diálogo `—` (no los convierte a coma como en Coqui)
+
+**`frontend/src/pages/admin/SubirPDF.jsx`:**
+- Nuevo botón "Voicebox" en el selector de motor TTS
+- `useEffect` que carga las voces desde `/api/voces/voicebox` al seleccionar Voicebox
+- Tarjetas de voz dinámicas (nombre e idioma) sin botón de preview
+- `voicebox_profile_id` añadido al FormData al procesar
+
+**Variables de entorno añadidas:**
+```
+VOICEBOX_URL=http://192.168.1.51:17493
+VOICEBOX_PROFILE_ID=4f2e31cf-a3aa-47d6-934c-f74d80aec9f2
+```
+
+---
+
+### Preprocesado de texto para Qwen3-TTS
+
+Qwen3-TTS trata el texto como un flujo continuo y no respeta bien la puntuación
+para hacer pausas. La solución es preservar la estructura del texto original:
+
+**`limpiar_texto_voicebox` — diferencias respecto a `limpiar_texto`:**
+- Los `\n\n` entre párrafos se preservan (Qwen3 los interpreta como pausa larga)
+- Los saltos simples dentro de frase se convierten en espacio
+- Los guiones de diálogo `—` se conservan (no se convierten a coma)
+- Se eliminan letras capitulares, notas del traductor, URLs y símbolos sueltos
+- Se normalizan comillas tipográficas
+
+**Campo `instruct` en la petición:**
+```
+"Narrate with natural pacing. Use longer pauses at periods and paragraph breaks.
+Dialogue lines starting with em-dash should sound like spoken speech,
+distinct from narration."
+```
+
+---
+
+### Observaciones de calidad
+
+- **Pausas:** mejoradas significativamente con `limpiar_texto_voicebox` —
+  los `\n\n` generan pausas largas entre párrafos
+- **Diálogos:** mejor entonación con el campo `instruct`, aunque la distinción
+  narrador/personaje es limitada en Qwen3
+- **Signos de expresión:** `¿` y `¡` no se entonan correctamente — pendiente
+- **Velocidad:** ~2 min por capítulo de ~2400 caracteres en RTX 3070 con CUDA
+
+---
+
+### Problemas encontrados y resueltos
+
+**Puerto 17493 no accesible desde el Mac** — el firewall de Windows tenía la
+regla añadida pero el puerto no respondía. Solución: verificar con `nc -zv`
+que el puerto estaba abierto; el problema era que Voicebox no estaba corriendo.
+
+**`completed` con `audio_path` vacío** — Voicebox marca la generación como
+completada antes de que todos los chunks estén escritos en disco (condición de
+carrera). Solución: usar `/generate/stream` que bloquea hasta completar.
+
+**Ruta duplicada `GET /voces/voicebox`** — FastAPI capturaba la ruta con
+`/voces/{nombre}` antes de llegar a `/voces/voicebox`. Solución: mover
+`/voces/voicebox` antes de `/voces/{nombre}` en `main.py`.
+
+**`ImportError: limpiar_texto_voicebox`** — Celery cachea los módulos al
+arrancar con `ForkPoolWorker`. Solución: `docker compose up --build` en lugar
+de `docker compose restart worker`.
+
+**`from backend.tts.voicebox import VOICEBOX_URL`** — import incorrecto en
+`main.py`. Solución: cambiar a `from tts.voicebox import VOICEBOX_URL`.
+
+---
+
+### Pendiente para próximas sesiones
+
+- **Calidad de audio** — seguir ajustando `instruct` y preprocesado para mejorar
+  entonación en signos de expresión (`¿`, `¡`) y distinción narrador/personaje
+- **Progreso simulado** — la barra se queda en 55% durante toda la generación
+  y salta a 100% al terminar. Implementar progreso simulado con hilo secundario
+- **Actualizar el DIARIO** en el mini PC con `git pull` + `docker compose up --build`
+  + `alembic upgrade head`
+- **Actualizar a Voicebox v0.4.0** — hay una actualización disponible, esperar
+  a que el flujo esté estable antes de actualizar

@@ -5,7 +5,7 @@ from tts.edge import process_file_with_edge
 from tts.google import process_file_with_google
 
 @celery_app.task(bind=True)
-def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -> str:
+def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", voicebox_profile_id: str = "") -> str:
     db = SessionLocal()
     parte = db.query(Parte).filter(Parte.id == parte_id).first()
 
@@ -53,7 +53,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
                     Parte.estado == EstadoParte.pendiente
                 ).order_by(Parte.orden_procesamiento).first()
                 if siguiente:
-                    nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)
+                    nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final, voicebox_profile_id)
                     siguiente.tarea_id = nueva_tarea.id
                     db.commit()
                 return ""
@@ -74,6 +74,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
                     self, None, filename,
                     texto_directo=texto_capitulo,
                     voz_bytes=voz_bytes_final
+                )
+            elif proveedor == "voicebox":
+                from tts.voicebox import process_file_with_voicebox
+                ruta_mp3 = process_file_with_voicebox(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    profile_id=voicebox_profile_id or None
                 )
             else:
                 raise ValueError(f"Proveedor desconocido: {proveedor}")
@@ -96,6 +103,14 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
                     parte.pagina_inicio, parte.pagina_fin,
                     voz_bytes_final
                 )
+            elif proveedor == "voicebox":
+                from tts.voicebox import process_file_with_voicebox
+                ruta_mp3 = process_file_with_voicebox(
+                    self, archivo_bytes, filename,
+                    pagina_inicio=parte.pagina_inicio,
+                    pagina_fin=parte.pagina_fin + 1,
+                    profile_id=voicebox_profile_id or None
+                )
             else:
                 raise ValueError(f"Proveedor desconocido: {proveedor}")
 
@@ -111,7 +126,7 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"") -
         ).order_by(Parte.orden_procesamiento).first()
 
         if siguiente:
-            nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final)
+            nueva_tarea = convertir_pdf.delay(proveedor, siguiente.id, voz_bytes_final, voicebox_profile_id)
             siguiente.tarea_id = nueva_tarea.id
             db.commit()
 

@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-        <dc:identifier opf:scheme="calibre" id="calibre_id">2</dc:identifier>
-        <dc:identifier opf:scheme="uuid" id="uuid_id">97c74f0c-dec1-4fa7-9bf9-14976c8a44e9</dc:identifier>
+        <dc:identifier opf:scheme="calibre" id="calibre_id">3</dc:identifier>
+        <dc:identifier opf:scheme="uuid" id="uuid_id">6ae1ed43-ae2f-4523-b462-aec2d59a5336</dc:identifier>
         <dc:title>La mejor venganza</dc:title>
         <dc:creator opf:file-as="Abercrombie, Joe" opf:role="aut">Joe Abercrombie</dc:creator>
         <dc:contributor opf:file-as="calibre" opf:role="bkp">calibre (9.6.0) [https://calibre-ebook.com]</dc:contributor>
@@ -17,7 +17,7 @@
         <dc:subject>Fantástico</dc:subject>
         <meta name="calibre:series" content="Historias del Mundo de La Primera Ley"/>
         <meta name="calibre:series_index" content="1"/>
-        <meta name="calibre:timestamp" content="2026-04-09T16:14:07.598134+00:00"/>
+        <meta name="calibre:timestamp" content="2026-04-19T18:03:36.572074+00:00"/>
         <meta name="calibre:title_sort" content="mejor venganza, La"/>
     </metadata>
     <guide>

@@ -199,3 +199,58 @@ def limpiar_texto(texto: str) -> str:
     texto = re.sub(r'\b(I{1,3}|IV|VI{0,3}|IX|XI{0,3}|XIV|XV|XIX|XX)\b', '', texto)
 
     return texto.strip()
+
+
+def limpiar_texto_voicebox(texto: str) -> str:
+    """
+    Preprocesado específico para Voicebox/Qwen3-TTS.
+    A diferencia de limpiar_texto, preserva la estructura de párrafos
+    y usa saltos de línea dobles para inducir pausas largas.
+    """
+
+    # 1. Letras capitulares pegadas al párrafo siguiente
+    texto = re.sub(r'(?m)^([A-ZÁÉÍÓÚÑÜ])\n([a-záéíóúñü])', r'\1\2', texto)
+
+    # 2. Notas del traductor
+    texto = re.sub(r'\[N\.\s*del\s*[TAta]\.:?[^\]]*\]', '', texto)
+    texto = re.sub(r'\(N\.\s*del\s*[TAta]\.:?[^)]*\)', '', texto)
+
+    # 3. URLs y números de página
+    texto = re.sub(r'-?\s*[Pp]ágina\s*\d+', '', texto)
+    texto = re.sub(r'www\.\S+', '', texto)
+    texto = re.sub(r'https?://\S+', '', texto)
+
+    # 4. Símbolos sueltos
+    texto = re.sub(r'[*†§©®™]', '', texto)
+
+    # 5. Comillas tipográficas → neutras
+    texto = texto.replace('\u201c', '"').replace('\u201d', '"')
+    texto = texto.replace('\u2018', "'").replace('\u2019', "'")
+
+    # 6. Letras capitulares sueltas en su propia línea
+    texto = re.sub(r'(?m)^\s*[A-ZÁÉÍÓÚÑÜ]\s*$', '', texto)
+
+    # 7. Títulos en mayúsculas → separados por saltos dobles
+    texto = re.sub(r'\n([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s]{2,})\n', r'\n\n\1\n\n', texto)
+
+    # 8. Salto simple dentro de frase (sin punto antes ni después) → espacio
+    texto = re.sub(r'([^.!?\n])\n([^\n])', r'\1 \2', texto)
+
+    # 9. Normalizar saltos múltiples → doble salto (pausa larga para Qwen3)
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+
+    # 10. Espacios múltiples
+    texto = re.sub(r'[ \t]+', ' ', texto)
+
+    # 11. Espacios antes de puntuación
+    texto = re.sub(r' +([.,;:!?])', r'\1', texto)
+
+    # 12. Puntuación doble
+    texto = re.sub(r'\.{2,}', '.', texto)
+    texto = re.sub(r',+', ',', texto)
+    texto = re.sub(r'([.!?])\s*[,.]', r'\1', texto)
+
+    # 13. Números romanos solos
+    texto = re.sub(r'\b(I{1,3}|IV|VI{0,3}|IX|XI{0,3}|XIV|XV|XIX|XX)\b', '', texto)
+
+    return texto.strip()
