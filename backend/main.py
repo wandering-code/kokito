@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from tts.voicebox import VOICEBOX_URL
 from tts.voicepoweredai import SERVIDOR_VOICEPOWEREDAI
+from tts.local import SERVIDOR_LOCAL
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
@@ -728,14 +729,23 @@ def voces_voicebox():
         raise HTTPException(status_code=503, detail=f"No se puede conectar con Voicebox: {str(e)}")
 
 
-@app.get("/admin/logs/voicepoweredai")
-def logs_voicepoweredai(lines: int = 200, usuario=Depends(requerir_admin)):
+SERVIDORES_LOGS = {
+    "local": ("Coqui", SERVIDOR_LOCAL),
+    "voicepoweredai": ("VoicePoweredAI", SERVIDOR_VOICEPOWEREDAI),
+}
+
+
+@app.get("/admin/logs/{motor}")
+def logs_motor_tts(motor: str, lines: int = 200, usuario=Depends(requerir_admin)):
+    if motor not in SERVIDORES_LOGS:
+        raise HTTPException(status_code=404, detail=f"Motor desconocido: {motor}")
+    nombre, url_base = SERVIDORES_LOGS[motor]
     try:
-        response = httpx.get(f"{SERVIDOR_VOICEPOWEREDAI}/logs", params={"lines": lines}, timeout=10)
+        response = httpx.get(f"{url_base}/logs", params={"lines": lines}, timeout=10)
         response.raise_for_status()
         return {"logs": response.text}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"No se puede conectar con el servidor VoicePoweredAI ({SERVIDOR_VOICEPOWEREDAI}): {str(e)}")
+        raise HTTPException(status_code=503, detail=f"No se puede conectar con el servidor {nombre} ({url_base}): {str(e)}")
 
 
 VOCES_DIR = "/app/voces"

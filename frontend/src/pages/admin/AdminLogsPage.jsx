@@ -5,7 +5,12 @@ import "./AdminLogsPage.css"
 const INTERVALO_REFRESCO_MS = 5000
 const LINEAS = 300
 
-export default function AdminLogsPage() {
+const MOTORES = [
+  { id: "local", nombre: "Coqui", subtitulo: "192.168.1.51:8001" },
+  { id: "voicepoweredai", nombre: "VoicePoweredAI", subtitulo: "192.168.1.51:8003" },
+]
+
+function PanelLogs({ motor }) {
   const [logs, setLogs]           = useState("")
   const [error, setError]         = useState(null)
   const [cargando, setCargando]   = useState(true)
@@ -14,7 +19,7 @@ export default function AdminLogsPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/admin/logs/voicepoweredai?lines=${LINEAS}`, {
+      const res = await fetch(`${API}/admin/logs/${motor.id}?lines=${LINEAS}`, {
         credentials: "include"
       })
       if (!res.ok) {
@@ -29,7 +34,7 @@ export default function AdminLogsPage() {
     } finally {
       setCargando(false)
     }
-  }, [])
+  }, [motor.id])
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -46,37 +51,47 @@ export default function AdminLogsPage() {
   }, [logs])
 
   return (
-    <div className="alog-root">
-      <div className="alog-card">
-        <div className="alog-header">
-          <div className="alog-header-titulo">
-            <div className="alog-card-title">Logs — VoicePoweredAI (sobremesa)</div>
-            <div className="alog-subtitulo">192.168.1.51:8003 · IP de LAN por DHCP, puede cambiar</div>
-          </div>
-          <div className="alog-acciones">
-            <label className="alog-toggle">
-              <input
-                type="checkbox"
-                checked={autoRefresco}
-                onChange={e => setAutoRefresco(e.target.checked)}
-              />
-              Auto (5s)
-            </label>
-            <button className="alog-btn-refrescar" onClick={cargar} disabled={cargando}>
-              {cargando ? "Cargando…" : "Actualizar"}
-            </button>
-          </div>
+    <div className="alog-card">
+      <div className="alog-header">
+        <div className="alog-header-titulo">
+          <div className="alog-card-title">{motor.nombre}</div>
+          <div className="alog-subtitulo">{motor.subtitulo} · IP de LAN por DHCP, puede cambiar</div>
         </div>
+        <div className="alog-acciones">
+          <label className="alog-toggle">
+            <input
+              type="checkbox"
+              checked={autoRefresco}
+              onChange={e => setAutoRefresco(e.target.checked)}
+            />
+            Auto (5s)
+          </label>
+          <button className="alog-btn-refrescar" onClick={cargar} disabled={cargando}>
+            {cargando ? "Cargando…" : "Actualizar"}
+          </button>
+        </div>
+      </div>
 
-        {error ? (
-          <div className="alog-error">
-            No se pudo conectar con el servidor: {error}
-          </div>
-        ) : (
-          <pre ref={preRef} className="alog-pre">
-            {logs || (cargando ? "Cargando logs…" : "Sin datos")}
-          </pre>
-        )}
+      {error ? (
+        <div className="alog-error">
+          No se pudo conectar con el servidor: {error}
+        </div>
+      ) : (
+        <pre ref={preRef} className="alog-pre">
+          {logs || (cargando ? "Cargando logs…" : "Sin datos")}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+export default function AdminLogsPage() {
+  return (
+    <div className="alog-root">
+      <div className="alog-grid">
+        {MOTORES.map(m => (
+          <PanelLogs key={m.id} motor={m} />
+        ))}
       </div>
     </div>
   )
