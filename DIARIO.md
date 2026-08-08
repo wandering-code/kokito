@@ -4082,3 +4082,50 @@ de `docker compose restart worker`.
   + `alembic upgrade head`
 - **Actualizar a Voicebox v0.4.0** — hay una actualización disponible, esperar
   a que el flujo esté estable antes de actualizar
+
+---
+
+### VoicePoweredAI (F5-TTS acento peninsular) — ajustes de calidad
+
+Integrado como motor `voicepoweredai` (servidor en el sobremesa, puerto 8003,
+`backend/tts/voicepoweredai.py`, mismo patrón que Chatterbox/Coqui) y probado
+end-to-end. Tras las primeras pruebas reales narrando diálogos, se detectaron
+y arreglaron varios problemas:
+
+- **Fragmentación propia para F5-TTS** — dejó de reutilizar el troceador de
+  Coqui (180 caracteres, coma solo como último recurso) y pasó a seguir la
+  recomendación oficial de F5-TTS (`chunk_text` del propio proyecto): máximo
+  135 caracteres, cortando en `; : , . ! ?` por igual.
+- **Quitados dos parches específicos de XTTS** que aquí sobraban: convertir
+  el punto final en coma, y recortar el guion de diálogo al final de
+  fragmento. Ninguno de los dos hace falta en F5-TTS y el segundo rompía la
+  entonación de cierre de las líneas de diálogo.
+- **Quitada la fusión de fragmentos cortos (<6 palabras)** heredada de Coqui
+  — con el troceador propio de F5-TTS esa fusión se tragaba pausas `[BREAK_*]`
+  puestas a propósito (p. ej. entre una pregunta y su acotación de diálogo) y
+  podía superar los 135 caracteres, forzando al servidor a re-trocear él solo
+  sin que Kokito pudiera controlar el empalme.
+- **Recorte de silencio en cada fragmento** — el servidor devuelve cada WAV
+  con ~1s de silencio muerto al principio y ~300ms al final; sin recortarlo
+  se sumaba al silencio que añade Kokito entre fragmentos y sonaba lento e
+  irregular. Se añadió `_recortar_silencios()` (basado en
+  `pydub.silence.detect_leading_silence`) antes de concatenar.
+- **`insertar_pausas_sml` (`text_utils.py`, compartida por los tres motores)**
+  no metía pausa antes de una frase que empezaba por `¿`/`¡` porque la regex
+  solo miraba mayúsculas normales — corregido.
+- **El checkpoint pronuncia mal el `¿` de apertura** ("¿Estás..." sonaba como
+  "OEstás..."). Se quita el signo de apertura y se deja el de cierre (mismo
+  criterio que ya usa `limpiar_texto()` para Edge/Google).
+- **`cfg_strength`** — el servidor no exponía ningún control de
+  expresividad. Se pidió añadirlo (classifier-free guidance de F5-TTS) y se
+  midió con F0 (pitch) y detección de clipping: el rango seguro es
+  **2.0–2.2**; a partir de ~2.4 el checkpoint se rompe (el F0 medio se
+  dispara de ~94Hz a 300-450Hz — no es más expresividad, es la voz
+  descomponiéndose). Configurado a **2.2** por defecto en Kokito
+  (`VOICEPOWEREDAI_CFG_STRENGTH`).
+
+**Pendiente**: incluso con `cfg_strength` a 2.2, la voz sigue sonando bastante
+plana/sin emoción. Probablemente sea una limitación del propio checkpoint/
+dataset de entrenamiento, no algo resoluble solo con parámetros — a explorar
+otro día, quizá probando una referencia de voz con más rango dramático de por
+sí (F5-TTS clona también el *estilo* de la referencia, no solo el timbre).

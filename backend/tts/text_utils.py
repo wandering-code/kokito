@@ -136,11 +136,13 @@ def insertar_pausas_sml(texto: str) -> str:
     # Pausa larga después de punto que cierra diálogo
     texto = re.sub(r'([.!?])\s+(?=—)', r'\1 [BREAK_LONG] ', texto)
 
-    # Pausa corta después de punto seguido de mayúscula
-    texto = re.sub(r'([.!?])\s+(?=[A-ZÁÉÍÓÚÑÜ])', r'\1 [BREAK_SHORT] ', texto)
+    # Pausa corta después de punto seguido de mayúscula — incluye ¿/¡ porque
+    # una frase nueva en español puede empezar por signo de apertura y antes
+    # se colaba sin pausa (p.ej. ". ¡Vamos!" no la llevaba)
+    texto = re.sub(r'([.!?])\s+(?=[A-ZÁÉÍÓÚÑÜ¿¡])', r'\1 [BREAK_SHORT] ', texto)
 
     # Pausa corta después de dos puntos
-    texto = re.sub(r'(:\s*)(?=[—"A-ZÁÉÍÓÚÑÜ])', r'\1[BREAK_SHORT] ', texto)
+    texto = re.sub(r'(:\s*)(?=[—"A-ZÁÉÍÓÚÑÜ¿¡])', r'\1[BREAK_SHORT] ', texto)
 
     # Limpiar marcadores duplicados
     texto = re.sub(r'(\[BREAK_(?:SHORT|LONG)\]\s*){2,}', r'\1', texto)
