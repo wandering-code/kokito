@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
-import { BookOpen, Settings, User, LogOut, ChevronDown, Users, Library, Bell, MessageSquare } from "lucide-react"
+import { BookOpen, Settings, User, LogOut, ChevronDown, Users, Library, Bell, MessageSquare, ScrollText } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import "./NavBar.css"
 
@@ -132,6 +132,14 @@ export default function NavBar() {
                       <Bell size={14} />
                       Novedades
                     </button>
+                    <div className="navbar-menu-separador" />
+                    <button
+                      className={`navbar-menu-item ${rutaActual.startsWith("/admin/logs") ? "navbar-menu-item--activo" : ""}`}
+                      onMouseDown={() => navegarAdmin("/admin/logs")}
+                    >
+                      <ScrollText size={14} />
+                      Logs
+                    </button>
                   </div>
                 )}
               </div>
@@ -230,6 +238,14 @@ export default function NavBar() {
                   >
                     <Bell size={18} />
                     Novedades
+                  </button>
+                  <div className="navbar-menu-separador" />
+                  <button
+                    className={`navbar-menu-item ${rutaActual.startsWith("/admin/logs") ? "navbar-menu-item--activo" : ""}`}
+                    onClick={() => navegarAdmin("/admin/logs")}
+                  >
+                    <ScrollText size={18} />
+                    Logs
                   </button>
                 </div>
               </>

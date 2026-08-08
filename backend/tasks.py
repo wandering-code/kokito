@@ -82,6 +82,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
                     texto_directo=texto_capitulo,
                     profile_id=voicebox_profile_id or None
                 )
+            elif proveedor == "voicepoweredai":
+                from tts.voicepoweredai import process_file_with_voicepoweredai
+                ruta_mp3 = process_file_with_voicepoweredai(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    voz_bytes=voz_bytes_final
+                )
             else:
                 raise ValueError(f"Proveedor desconocido: {proveedor}")
 
@@ -110,6 +117,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
                     pagina_inicio=parte.pagina_inicio,
                     pagina_fin=parte.pagina_fin + 1,
                     profile_id=voicebox_profile_id or None
+                )
+            elif proveedor == "voicepoweredai":
+                from tts.voicepoweredai import process_file_with_voicepoweredai
+                ruta_mp3 = process_file_with_voicepoweredai(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin,
+                    voz_bytes=voz_bytes_final
                 )
             else:
                 raise ValueError(f"Proveedor desconocido: {proveedor}")

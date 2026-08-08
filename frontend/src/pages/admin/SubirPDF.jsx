@@ -214,7 +214,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     fd.append("portada_url", portadaUrl)
     fd.append("capitulo_inicio", capituloInicio)
 
-    if (proveedor === "local") {
+    if (proveedor === "local" || proveedor === "voicepoweredai") {
       if (vozArchivo) {
         fd.append("voz", vozArchivo)
       } else if (vozSeleccionada) {
@@ -538,11 +538,15 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
                 onClick={() => setProveedor("voicebox")}>
                 Voicebox
               </button>
+              <button className={`spdf-tts-btn ${proveedor === "voicepoweredai" ? "active" : ""}`}
+                onClick={() => setProveedor("voicepoweredai")}>
+                VoicePoweredAI (ES)
+              </button>
             </div>
           </div>
 
-          {/* Voces Coqui */}
-          {proveedor === "local" && (
+          {/* Voces Coqui / VoicePoweredAI — mismos archivos de referencia, clonado zero-shot */}
+          {(proveedor === "local" || proveedor === "voicepoweredai") && (
             <div className="spdf-coqui">
               <div className="spdf-coqui-title">Voz</div>
               <div className="spdf-voces">

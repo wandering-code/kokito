@@ -12,6 +12,7 @@ import AdminNovedadesPage from "./pages/admin/AdminNovedadesPage"
 import ModalNovedades from "./components/ModalNovedades"
 import SolicitudesPage from "./pages/usuario/SolicitudesPage"
 import AdminSolicitudesPage from "./pages/admin/AdminSolicitudesPage"
+import AdminLogsPage from "./pages/admin/AdminLogsPage"
 
 function RutaProtegida({ children }) {
   const { usuario, cargando } = useAuth()
@@ -104,6 +105,14 @@ export default function App() {
         <RutaProtegida>
           <RutaAdmin>
             <AdminSolicitudesPage />
+          </RutaAdmin>
+        </RutaProtegida>
+      } />
+
+      <Route path="/admin/logs" element={
+        <RutaProtegida>
+          <RutaAdmin>
+            <AdminLogsPage />
           </RutaAdmin>
         </RutaProtegida>
       } />

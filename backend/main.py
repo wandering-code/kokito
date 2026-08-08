@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from tts.voicebox import VOICEBOX_URL
+from tts.voicepoweredai import SERVIDOR_VOICEPOWEREDAI
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
@@ -725,7 +726,17 @@ def voces_voicebox():
         ]
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No se puede conectar con Voicebox: {str(e)}")
-    
+
+
+@app.get("/admin/logs/voicepoweredai")
+def logs_voicepoweredai(lines: int = 200, usuario=Depends(requerir_admin)):
+    try:
+        response = httpx.get(f"{SERVIDOR_VOICEPOWEREDAI}/logs", params={"lines": lines}, timeout=10)
+        response.raise_for_status()
+        return {"logs": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se puede conectar con el servidor VoicePoweredAI ({SERVIDOR_VOICEPOWEREDAI}): {str(e)}")
+
 
 VOCES_DIR = "/app/voces"
 
