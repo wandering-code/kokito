@@ -7,6 +7,9 @@ const VOCES_PREDEFINIDAS = [
   { id: "voz_masculina_media.mp3", nombre: "Voz 2", descripcion: "Masculina · media" },
   { id: "voz_femenina_suave.mp3",  nombre: "Voz 3", descripcion: "Femenina · suave" },
   { id: "voz_masculina_joven.mp3",  nombre: "Voz 4", descripcion: "Masculina · joven" },
+  { id: "voz_masculina_expresiva.wav", nombre: "Voz 5", descripcion: "Masculina · expresiva" },
+  { id: "voz_emocion.mp3", nombre: "Voz 6", descripcion: "Masculina · emoción" },
+  { id: "voz_expresiva_masculina.mp3", nombre: "Voz 7", descripcion: "Masculina · expresiva", recomendadaPara: "indextts" },
 ]
 
 const GENEROS = [
@@ -103,6 +106,12 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     comprobarProveedor()
     const intervalo = setInterval(comprobarProveedor, 5000)
     return () => clearInterval(intervalo)
+  }, [proveedor])
+
+  useEffect(() => {
+    if (proveedor !== "indextts") return
+    const recomendada = VOCES_PREDEFINIDAS.find(v => v.recomendadaPara === "indextts")
+    if (recomendada) { setVozSeleccionada(recomendada.id); setVozArchivo(null) }
   }, [proveedor])
 
   useEffect(() => {
@@ -214,7 +223,7 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
     fd.append("portada_url", portadaUrl)
     fd.append("capitulo_inicio", capituloInicio)
 
-    if (proveedor === "local" || proveedor === "voicepoweredai") {
+    if (proveedor === "local" || proveedor === "indextts" || proveedor === "chatterbox" || proveedor === "voicepoweredai") {
       if (vozArchivo) {
         fd.append("voz", vozArchivo)
       } else if (vozSeleccionada) {
@@ -534,19 +543,27 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
                 onClick={() => setProveedor("local")}>
                 Coqui (IA local)
               </button>
-              <button className={`spdf-tts-btn ${proveedor === "voicebox" ? "active" : ""}`}
-                onClick={() => setProveedor("voicebox")}>
-                Voicebox
+              <button className={`spdf-tts-btn ${proveedor === "indextts" ? "active" : ""}`}
+                onClick={() => setProveedor("indextts")}>
+                IndexTTS-2.5
               </button>
-              <button className={`spdf-tts-btn ${proveedor === "voicepoweredai" ? "active" : ""}`}
-                onClick={() => setProveedor("voicepoweredai")}>
-                VoicePoweredAI (ES)
+              <button className="spdf-tts-btn" disabled title="Deshabilitado temporalmente"
+                style={{ opacity: 0.5, cursor: "not-allowed" }}>
+                Voicebox — deshabilitado
+              </button>
+              <button className="spdf-tts-btn" disabled title="Deshabilitado temporalmente"
+                style={{ opacity: 0.5, cursor: "not-allowed" }}>
+                Chatterbox — deshabilitado
+              </button>
+              <button className="spdf-tts-btn" disabled title="Deshabilitado temporalmente"
+                style={{ opacity: 0.5, cursor: "not-allowed" }}>
+                VoicePoweredAI (ES) — deshabilitado
               </button>
             </div>
           </div>
 
-          {/* Voces Coqui / VoicePoweredAI — mismos archivos de referencia, clonado zero-shot */}
-          {(proveedor === "local" || proveedor === "voicepoweredai") && (
+          {/* Voces Coqui / IndexTTS / Chatterbox / VoicePoweredAI — mismos archivos de referencia, clonado zero-shot */}
+          {(proveedor === "local" || proveedor === "indextts" || proveedor === "chatterbox" || proveedor === "voicepoweredai") && (
             <div className="spdf-coqui">
               <div className="spdf-coqui-title">Voz</div>
               <div className="spdf-voces">
@@ -556,7 +573,12 @@ export default function SubirPDF({ onLibroSubido, libroEditando, onCancelarEdici
                     className={`spdf-voz ${!vozArchivo && vozSeleccionada === voz.id ? "selected" : ""}`}
                     onClick={() => { setVozSeleccionada(voz.id); setVozArchivo(null) }}
                   >
-                    <div className="spdf-voz-name">{voz.nombre}</div>
+                    <div className="spdf-voz-name">
+                      {voz.nombre}
+                      {voz.recomendadaPara === proveedor && (
+                        <span className="spdf-voz-recomendada" title="Voz recomendada para este motor"> ★</span>
+                      )}
+                    </div>
                     <div className="spdf-voz-desc">{voz.descripcion}</div>
                     <button className="spdf-voz-play" onClick={e => reproducirVoz(voz.id, e)}>
                       {vozReproduciendo === voz.id ? (

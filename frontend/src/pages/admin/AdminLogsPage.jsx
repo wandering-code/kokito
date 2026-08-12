@@ -8,6 +8,7 @@ const LINEAS = 300
 const MOTORES = [
   { id: "local", nombre: "Coqui", subtitulo: "192.168.1.51:8001" },
   { id: "voicepoweredai", nombre: "VoicePoweredAI", subtitulo: "192.168.1.51:8003" },
+  { id: "indextts", nombre: "IndexTTS-2.5", subtitulo: "192.168.1.51:8005" },
 ]
 
 function PanelLogs({ motor }) {

@@ -5,6 +5,7 @@ from celery.result import AsyncResult
 from tts.voicebox import VOICEBOX_URL
 from tts.voicepoweredai import SERVIDOR_VOICEPOWEREDAI
 from tts.local import SERVIDOR_LOCAL
+from tts.indextts import SERVIDOR_INDEXTTS
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
@@ -45,11 +46,6 @@ def analizar_y_registrar_libro(archivo_bytes, titulo, autor, paginas_por_parte, 
 
     # Calcular hash del contenido
     hash_contenido = hashlib.sha256(archivo_bytes).hexdigest()
-
-    # Comprobar si el libro ya existe
-    libro_existente = db.query(Libro).filter(Libro.hash_contenido == hash_contenido).first()
-    if libro_existente:
-        return libro_existente, False
 
     if formato == "epub":
         from epub_utils import extraer_capitulos_epub
@@ -732,6 +728,7 @@ def voces_voicebox():
 SERVIDORES_LOGS = {
     "local": ("Coqui", SERVIDOR_LOCAL),
     "voicepoweredai": ("VoicePoweredAI", SERVIDOR_VOICEPOWEREDAI),
+    "indextts": ("IndexTTS-2.5", SERVIDOR_INDEXTTS),
 }
 
 

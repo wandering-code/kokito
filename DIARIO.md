@@ -4129,3 +4129,112 @@ plana/sin emoción. Probablemente sea una limitación del propio checkpoint/
 dataset de entrenamiento, no algo resoluble solo con parámetros — a explorar
 otro día, quizá probando una referencia de voz con más rango dramático de por
 sí (F5-TTS clona también el *estilo* de la referencia, no solo el timbre).
+
+Confirmado con pruebas reales (2026-08-10): ni la voz de referencia más
+expresiva (`voz_masculina_expresiva.wav`) ni subir `cfg_strength` por encima
+de 2.2 (probado hasta 4.0, incluso con `nfe_step=64`) arreglan el problema —
+2.2 sigue siendo el que mejor suena en calidad, el resto solo añaden
+artefactos. Además el checkpoint pronuncia mal palabras sueltas de forma
+consistente (p. ej. "quién" → "qüien", "Llevo" → "Levo"), independientemente
+del `cfg_strength`. Conclusión: es limitación real del checkpoint, no de
+parámetros — con Coqui de momento suena mejor en comparación.
+
+---
+
+### Motores TTS por explorar — Zonos y Orpheus
+
+Investigado el panorama de motores TTS con control de emoción explícito
+(no solo "esperar que la voz de referencia contagie su estilo", que es lo
+único que ofrecen Coqui/Chatterbox/VoicePoweredAI):
+
+- **Zonos** (Zyphra, Apache 2.0, autoalojable,
+  [github.com/Zyphra/Zonos](https://github.com/Zyphra/Zonos)) — control
+  explícito de emoción por parámetro (felicidad/tristeza/miedo/ira/sorpresa),
+  entrenado con español incluido. En montaje en el sobremesa
+  (2026-08-10) en `C:\kokito-zonos`, mismo patrón que
+  `kokito-voicepoweredai`/`kokito-chatterbox` (servidor FastAPI propio,
+  puerto nuevo, regla de firewall).
+- **Orpheus TTS** ([github.com/canopyai/Orpheus-TTS](https://github.com/canopyai/Orpheus-TTS))
+  — pendiente de probar más adelante. Zero-shot cloning + tags de
+  emoción/entonación en el propio texto, voces en español (javi, sergio,
+  maria) desde su fine-tune multilingüe. Sin confirmar si el clonado
+  zero-shot funciona igual de bien en español o solo con esas voces
+  predefinidas — comprobarlo antes de invertir tiempo en montarlo.
+
+### Zonos — servidor funcionando end-to-end (2026-08-10)
+
+La sesión anterior se quedó colgada probando Zonos por SSH y acabó
+tumbando el sobremesa entero (hubo que reiniciarlo). Retomado tras el
+reinicio, diagnosticado y arreglado por completo:
+
+**Dos bugs reales en `C:\kokito-zonos\server.py` / la librería Zonos:**
+
+1. **Device mismatch (cuda:0 vs cpu) al generar el speaker embedding.**
+   `Zonos.make_speaker_embedding` crea perezosamente un
+   `SpeakerEmbeddingLDA()` en CUDA (vía `with torch.device(device):`),
+   pero `torchaudio.transforms.MelSpectrogram` internamente (usado por
+   `logFbankCal` en `zonos/speaker_cloning.py`) no respeta ese contexto
+   de dispositivo ambiental al construir el filterbank mel — deja un
+   tensor en CPU mezclado con otros en CUDA. Fix aplicado en
+   `server.py`: instanciar `SpeakerEmbeddingLDA(device="cpu")` a mano
+   en el arranque del servidor (antes de que Zonos la cree perezosa en
+   CUDA), y dejar que el `.to(DEVICE)` que ya hacía `server.py` mueva
+   el embedding final a GPU. Es una operación puntual y barata (se
+   cachea por voz), así que no cuesta rendimiento real.
+2. **`torch.compile` (backend inductor) sin compilador MSVC instalado.**
+   `Zonos.generate()` compila `_decode_one_token` con `torch.compile`
+   salvo que se use CUDA Graphs (solo soportado por el backbone
+   mamba_ssm, no por el backbone "transformer" que usamos) o se pase
+   `disable_torch_compile=True`. Sin Visual Studio Build Tools (`cl.exe`)
+   en el sobremesa, la compilación falla. Fix: pasar
+   `disable_torch_compile=True` en la llamada a `model.generate(...)`
+   en `server.py`.
+
+**Hallazgo operativo (para futuras sesiones que lancen procesos por SSH
+en Windows):** `set VAR=1 && comando` en `cmd.exe`, escrito todo en una
+sola línea, incluye el espacio antes de `&&` como parte del valor de
+la variable (`VAR` queda como `"1 "`, no `"1"`). Con `PYTHONUTF8` eso
+provoca `Fatal Python error: preconfig_init_utf8_mode: invalid
+PYTHONUTF8 environment variable value` — probablemente la causa real
+de que la sesión anterior se quedara "pillada" sin logs ni respuesta.
+Solución: no dejar espacio antes de `&&` (`set VAR=1&& comando`), o
+usar `set "VAR=1"` con comillas. Además, lanzar el servidor de forma
+verdaderamente persistente por SSH en Windows resultó más delicado de
+lo esperado: `Start-Process` con `-WindowStyle Hidden` o con
+`CreateNoWindow` sin redirección de stdio hace que el proceso muera
+casi al instante (necesita handles de stdio válidos, probablemente por
+`tqdm`/CUDA tocando stderr); `Start-Process`/`schtasks` apuntando a un
+`.bat` tampoco llegaba ni a ejecutar `python`. Lo que sí funcionó:
+lanzar el comando directamente (sin `.bat` de por medio) en primer
+plano sobre una conexión SSH mantenida viva en segundo plano — así el
+proceso hereda un stdio válido y no depende de que nadie mantenga vivo
+un pipe después de que el lanzador termine.
+
+**Verificado con una síntesis real de extremo a extremo:** petición a
+`POST /tts` con voz de referencia, `HTTP 200`, WAV válido (44.1kHz
+mono) generado en ~5.7s para 25 caracteres de texto.
+
+**Descartado (2026-08-10): acento no peninsular, es limitación del
+checkpoint.** El audio generado suena a español con acento como
+"británico" — nada de castellano puro. Antes de tirar la toalla se
+descartaron las causas configurables:
+- **No es la voz de referencia** — probado tanto con el WAV de pruebas
+  ad-hoc (`voz_masculina.wav`) como con `voz_masculina_grave.mp3` (voz
+  peninsular verificada, usada en producción para Coqui/VoicePoweredAI),
+  mismo resultado con las dos.
+- **No es el fonemizador ni el idioma** — comprobado directamente con
+  `espeak-ng -v es --ipa` sobre el texto de prueba: produce IPA de
+  castellano genuino (`θ` de "voz", `ʎ` de "castellano" — distinción y
+  yeísmo correctos), no inglés ni error de idioma.
+
+Con la voz de referencia y la fonemización descartadas, la conclusión
+es que el propio checkpoint acústico `Zyphra/Zonos-v0.1-transformer`
+arrastra un sesgo de prosodia/entonación hacia el inglés al sintetizar
+español, pese a fonemas correctos — mismo tipo de limitación
+estructural ya visto con F5-TTS/VoicePoweredAI (ver más arriba), no
+algo resoluble con parámetros de `server.py` ni cambiando la
+referencia. **Zonos descartado como proveedor para Kokito.** Servidor
+en el sobremesa (`C:\kokito-zonos`, puerto 8004) queda montado por si
+se quiere retomar en el futuro (p. ej. si Zyphra saca un checkpoint con
+mejor español), pero no se integra en `backend/tasks.py`/`SubirPDF.jsx`.
+Siguiente candidato pendiente de explorar: Orpheus TTS (ver arriba).

@@ -82,9 +82,23 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
                     texto_directo=texto_capitulo,
                     profile_id=voicebox_profile_id or None
                 )
+            elif proveedor == "chatterbox":
+                from tts.chatterbox import process_file_with_chatterbox
+                ruta_mp3 = process_file_with_chatterbox(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    voz_bytes=voz_bytes_final
+                )
             elif proveedor == "voicepoweredai":
                 from tts.voicepoweredai import process_file_with_voicepoweredai
                 ruta_mp3 = process_file_with_voicepoweredai(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    voz_bytes=voz_bytes_final
+                )
+            elif proveedor == "indextts":
+                from tts.indextts import process_file_with_indextts
+                ruta_mp3 = process_file_with_indextts(
                     self, None, filename,
                     texto_directo=texto_capitulo,
                     voz_bytes=voz_bytes_final
@@ -118,9 +132,23 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
                     pagina_fin=parte.pagina_fin + 1,
                     profile_id=voicebox_profile_id or None
                 )
+            elif proveedor == "chatterbox":
+                from tts.chatterbox import process_file_with_chatterbox
+                ruta_mp3 = process_file_with_chatterbox(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin,
+                    voz_bytes=voz_bytes_final
+                )
             elif proveedor == "voicepoweredai":
                 from tts.voicepoweredai import process_file_with_voicepoweredai
                 ruta_mp3 = process_file_with_voicepoweredai(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin,
+                    voz_bytes=voz_bytes_final
+                )
+            elif proveedor == "indextts":
+                from tts.indextts import process_file_with_indextts
+                ruta_mp3 = process_file_with_indextts(
                     self, archivo_bytes, filename,
                     parte.pagina_inicio, parte.pagina_fin,
                     voz_bytes=voz_bytes_final

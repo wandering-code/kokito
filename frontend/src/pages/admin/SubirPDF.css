@@ -68,6 +68,7 @@
 .spdf-voz:hover { border-color: var(--cr-tan); }
 .spdf-voz.selected { border-color: var(--cr-brown); background: rgba(139,107,74,0.05); }
 .spdf-voz-name { font-size: 13px; font-weight: 500; color: var(--cr-dark); }
+.spdf-voz-recomendada { color: #c9971f; }
 .spdf-voz-desc { font-size: 11px; color: var(--cr-muted); }
 .spdf-voz-play {
   width: 24px; height: 24px; border-radius: 50%;

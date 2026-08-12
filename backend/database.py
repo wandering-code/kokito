@@ -41,7 +41,7 @@ class Libro(Base):
     id                = Column(Integer, primary_key=True, index=True)
     titulo            = Column(String, nullable=False)
     autor             = Column(String, nullable=True)
-    hash_contenido    = Column(String, unique=True, nullable=False)
+    hash_contenido    = Column(String, nullable=False)
     num_paginas       = Column(Integer, nullable=False)
     paginas_por_parte = Column(Integer, nullable=False, default=50)
     visible           = Column(Boolean, default=False, nullable=False)
