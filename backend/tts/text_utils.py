@@ -203,6 +203,91 @@ def limpiar_texto(texto: str) -> str:
     return texto.strip()
 
 
+def dividir_texto_indextts(texto: str, max_chars: int = 420) -> list[tuple[str, bool]]:
+    """
+    Trocea el texto para IndexTTS-2.5 respetando SIEMPRE límites de frase —
+    a diferencia del troceador por presupuesto de tokens que trae IndexTTS de
+    fábrica, este nunca corta a media frase ni en una coma (solo en . ! ? …),
+    para no partir un intercambio de diálogo por la mitad ni perder la
+    entonación de una pregunta/exclamación al dividirla entre dos fragmentos.
+
+    Los párrafos de NARRACIÓN se siguen empaquetando entre sí hasta
+    max_chars sin forzar un fragmento nuevo en cada salto de párrafo — un
+    EPUB suele tener cada línea como párrafo/<p> separado, y cortar ahí sin
+    más dispara el número de fragmentos (probado: 40 fragmentos para un
+    texto que con esta función quedan en un puñado).
+
+    Los párrafos de DIÁLOGO (que empiezan por guion largo "—") en cambio
+    SIEMPRE quedan aislados en su propio fragmento (o fragmentos, si la
+    intervención por sí sola supera max_chars) — nunca se empaquetan con
+    narración vecina ni con otra intervención. Bug encontrado el 2026-08-20
+    probando ya en Kokito: empaquetarlos borraba el límite de fragmento
+    justo antes/después de la intervención, que es donde el ensamblado
+    inserta la pausa (ver PAUSA_DIALOGO_MS en indextts.py) — sin límite, no
+    hay hueco para la pausa y sonaba pegado a la narración siguiente.
+    Además, mezclar la intervención con frases de narración previas en la
+    misma llamada a IndexTTS parecía arrastrar un tono más plano y
+    perjudicar la entonación de preguntas/exclamaciones dentro del
+    diálogo — aislarla reproduce la misma granularidad (una llamada por
+    intervención) que se validó de oído en la evaluación del 2026-08-20.
+
+    Devuelve una lista de tuplas (fragmento, es_dialogo) — es_dialogo indica
+    si el fragmento es (o pertenece a) una intervención de diálogo, que es
+    lo que usa el ensamblado para decidir la pausa entre fragmentos (ver
+    PAUSA_DIALOGO_MS/PAUSA_NARRACION_MS en indextts.py, pipeline validado el
+    2026-08-20 sobre una novela de Abercrombie — ver EVALUACION_INDEXTTS.md
+    en D:\\Proyectos\\index_tts del motor).
+    """
+    # \n+ (no solo '\n\n' literal): limpiar_texto_voicebox solo preserva un
+    # salto de línea SUELTO cuando ya sigue a un final de frase (. ! ?) —
+    # cualquier salto simple a media frase ya se colapsó a espacio antes de
+    # llegar aquí. Un texto pegado línea a línea (un diálogo por línea, sin
+    # línea en blanco entre medias) usa saltos simples entre párrafos, no
+    # dobles — partir solo por '\n\n' dejaba todo el texto como un único
+    # "párrafo" y el aislamiento de diálogo de más abajo nunca se activaba.
+    parrafos = [p.strip() for p in re.split(r'\n+', texto) if p.strip()]
+
+    def es_parrafo_dialogo(p: str) -> bool:
+        return p.startswith('—') or p.startswith('-')
+
+    def empaquetar(oraciones: list[str]) -> list[str]:
+        frags: list[str] = []
+        actual = ""
+        for oracion in oraciones:
+            candidato = f"{actual} {oracion}".strip() if actual else oracion
+            if len(candidato) <= max_chars or not actual:
+                actual = candidato
+            else:
+                frags.append(actual)
+                actual = oracion
+        if actual:
+            frags.append(actual)
+        return frags
+
+    fragmentos: list[tuple[str, bool]] = []
+    narracion_pendiente: list[str] = []
+
+    def flush_narracion():
+        for frag in empaquetar(narracion_pendiente):
+            fragmentos.append((frag, False))
+        narracion_pendiente.clear()
+
+    for parrafo in parrafos:
+        oraciones = [o.strip() for o in re.split(r'(?<=[.!?…])\s+', parrafo) if o.strip()]
+        if not oraciones:
+            continue
+        if es_parrafo_dialogo(parrafo):
+            flush_narracion()
+            for frag in empaquetar(oraciones):
+                fragmentos.append((frag, True))
+        else:
+            narracion_pendiente.extend(oraciones)
+
+    flush_narracion()
+
+    return fragmentos
+
+
 def limpiar_texto_voicebox(texto: str) -> str:
     """
     Preprocesado específico para Voicebox/Qwen3-TTS.
