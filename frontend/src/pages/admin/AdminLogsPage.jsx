@@ -9,6 +9,7 @@ const MOTORES = [
   { id: "local", nombre: "Coqui", subtitulo: "192.168.1.51:8001" },
   { id: "voicepoweredai", nombre: "VoicePoweredAI", subtitulo: "192.168.1.51:8003" },
   { id: "indextts", nombre: "IndexTTS-2.5", subtitulo: "192.168.1.51:8005" },
+  { id: "higgs", nombre: "Higgs Audio v3", subtitulo: "192.168.1.51:8006" },
 ]
 
 function PanelLogs({ motor }) {

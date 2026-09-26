@@ -103,6 +103,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
                     texto_directo=texto_capitulo,
                     voz_bytes=voz_bytes_final
                 )
+            elif proveedor == "higgs":
+                from tts.higgs import process_file_with_higgs
+                ruta_mp3 = process_file_with_higgs(
+                    self, None, filename,
+                    texto_directo=texto_capitulo,
+                    voz_bytes=voz_bytes_final
+                )
             else:
                 raise ValueError(f"Proveedor desconocido: {proveedor}")
 
@@ -149,6 +156,13 @@ def convertir_pdf(self, proveedor: str, parte_id: int, voz_bytes: bytes = b"", v
             elif proveedor == "indextts":
                 from tts.indextts import process_file_with_indextts
                 ruta_mp3 = process_file_with_indextts(
+                    self, archivo_bytes, filename,
+                    parte.pagina_inicio, parte.pagina_fin,
+                    voz_bytes=voz_bytes_final
+                )
+            elif proveedor == "higgs":
+                from tts.higgs import process_file_with_higgs
+                ruta_mp3 = process_file_with_higgs(
                     self, archivo_bytes, filename,
                     parte.pagina_inicio, parte.pagina_fin,
                     voz_bytes=voz_bytes_final

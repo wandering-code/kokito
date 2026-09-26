@@ -6,6 +6,7 @@ from tts.voicebox import VOICEBOX_URL
 from tts.voicepoweredai import SERVIDOR_VOICEPOWEREDAI
 from tts.local import SERVIDOR_LOCAL
 from tts.indextts import SERVIDOR_INDEXTTS
+from tts.higgs import SERVIDOR_HIGGS
 from tasks import convertir_pdf
 from celery_app import celery_app
 from database import SessionLocal, Conversion, Libro, Parte, EstadoParte
@@ -729,6 +730,7 @@ SERVIDORES_LOGS = {
     "local": ("Coqui", SERVIDOR_LOCAL),
     "voicepoweredai": ("VoicePoweredAI", SERVIDOR_VOICEPOWEREDAI),
     "indextts": ("IndexTTS-2.5", SERVIDOR_INDEXTTS),
+    "higgs": ("Higgs Audio v3", SERVIDOR_HIGGS),
 }
 
 

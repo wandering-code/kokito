@@ -341,3 +341,91 @@ def limpiar_texto_voicebox(texto: str) -> str:
     texto = re.sub(r'\b(I{1,3}|IV|VI{0,3}|IX|XI{0,3}|XIV|XV|XIX|XX)\b', '', texto)
 
     return texto.strip()
+
+def dividir_unidades_higgs(texto: str, max_chars: int = 200) -> list[dict]:
+    """
+    Trocea el texto en UNIDADES para Higgs Audio v3: frases, y dentro de cada
+    párrafo, cortes en las rayas de diálogo (—). Troceo determinista, igual que
+    anotar.py de la evaluación (#7): el LLM que pone las emociones solo etiqueta
+    unidades, nunca reescribe texto (cuando se le pidió trocear, se comió una
+    frase entera).
+
+    Si una unidad es diálogo o narración sale de la convención de las rayas: en
+    un párrafo partido por "—", las partes impares son diálogo y las pares
+    narración ("—Hola —dijo él—. ¿Qué tal?" → diálogo, narración, diálogo),
+    empiece el párrafo por raya o no ("Ella dijo: —Vete.").
+
+    Devuelve dicts {texto, dialogo, parrafo}. Las rayas no llegan a Higgs.
+    """
+    unidades: list[dict] = []
+    parrafos = [p.strip() for p in re.split(r'\n+', texto) if p.strip()]
+    for n_parrafo, parrafo in enumerate(parrafos):
+        # Algunos EPUB marcan el diálogo con guion corto o semirraya al principio.
+        parrafo = re.sub(r'^[-–]\s*', '—', parrafo)
+        for i, parte in enumerate(re.split(r'\s*[—―]\s*', parrafo)):
+            parte = parte.strip()
+            # Puntuación que queda suelta al cerrar un inciso ("—dijo él—. Ya…")
+            # va con la unidad anterior del mismo párrafo.
+            m = re.match(r'^[.,;:…!?]+', parte)
+            if m and unidades and unidades[-1]["parrafo"] == n_parrafo:
+                unidades[-1]["texto"] += m.group(0)
+                parte = parte[m.end():].strip()
+            for oracion in re.split(r'(?<=[.!?])\s+|(?<=…)\s+(?=[A-ZÁÉÍÓÚÑ¿¡])', parte):
+                oracion = oracion.strip()
+                if not re.search(r'\w', oracion):
+                    continue
+                for trozo in _partir_por_comas(oracion, max_chars):
+                    unidades.append({"texto": trozo, "dialogo": i % 2 == 1, "parrafo": n_parrafo})
+    return unidades
+
+
+def _partir_por_comas(oracion: str, max_chars: int) -> list[str]:
+    """Una frase de más de max_chars se parte en , ; : — con Higgs la voz deriva
+    dentro de las generaciones largas (#7: trozos de 20-27 s cambiaban de voz,
+    los de 3-10 s no)."""
+    if len(oracion) <= max_chars:
+        return [oracion]
+    trozos, actual = [], ""
+    for pieza in re.split(r'(?<=[,;:])\s+', oracion):
+        if actual and len(actual) + 1 + len(pieza) > max_chars:
+            trozos.append(actual)
+            actual = pieza
+        else:
+            actual = f"{actual} {pieza}".strip()
+    if actual:
+        trozos.append(actual)
+    return trozos
+
+
+def agrupar_trozos_higgs(unidades: list[dict], etiquetas: list[dict], max_chars: int = 200) -> list[dict]:
+    """
+    Une unidades consecutivas en trozos de <= max_chars, uno por llamada a Higgs.
+    Solo se unen unidades con las mismas etiquetas: las de Higgs se aplican a
+    toda una generación, así que una intervención con emoción va sola.
+
+    Dentro de un párrafo, diálogo e inciso del narrador van juntos si las
+    etiquetas coinciden, con la raya de vuelta ("Cobarde —dijo."). Sueltos,
+    los incisos cortos ("dijo.", "musitó Benna.") son generaciones de una o dos
+    palabras, donde Higgs más se inventa cosas (probado en Kokito el
+    2026-09-26). Entre párrafos solo se une narración con narración: cada
+    párrafo de diálogo es una intervención distinta. Troceo corto a propósito:
+    con referencia fija y trozos por intervención la voz no cambia (#7).
+    """
+    trozos: list[dict] = []
+    for u, e in zip(unidades, etiquetas):
+        emocion, estilo = e.get("emocion"), e.get("estilo")
+        if trozos:
+            t = trozos[-1]
+            mismas_etiquetas = (t["emocion"], t["estilo"]) == (emocion, estilo)
+            mismo_parrafo = t["parrafo"] == u["parrafo"]
+            narracion_seguida = not t["ultimo_dialogo"] and not u["dialogo"]
+            separador = " —" if mismo_parrafo and t["ultimo_dialogo"] != u["dialogo"] else " "
+            cabe = len(t["texto"]) + len(separador) + len(u["texto"]) <= max_chars
+            if mismas_etiquetas and cabe and (mismo_parrafo or narracion_seguida):
+                t["texto"] += separador + u["texto"]
+                t["parrafo"] = u["parrafo"]
+                t["ultimo_dialogo"] = u["dialogo"]
+                continue
+        trozos.append({"texto": u["texto"], "parrafo": u["parrafo"], "ultimo_dialogo": u["dialogo"],
+                       "emocion": emocion, "estilo": estilo})
+    return trozos
