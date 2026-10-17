@@ -23,7 +23,8 @@ MAX_CHARS_POR_TROZO = int(os.getenv("HIGGS_MAX_CHARS_POR_TROZO", "200"))
 # T = 1,2 elegida a ciegas frente a 0,7 y 0,95: "el que menos monótono es".
 # Sube los inventos de palabras, que el servidor caza con ASR y regenera.
 TEMPERATURA = float(os.getenv("HIGGS_TEMPERATURA", "1.2"))
-# Emociones por intervención con el LLM local del sobremesa (Ollama). Con 0 se
+# Emociones por intervención: las pone el servidor de Higgs (Gemini si tiene clave,
+# si no el LLM local con Ollama; ver anotador.py del servidor). Con 0 se
 # genera todo sin etiquetas (más rápido, más monótono).
 ANOTAR_EMOCIONES = os.getenv("HIGGS_ANOTAR_EMOCIONES", "1") == "1"
 # Pausa entre trozos: la de todas las escuchas de #7 (0,35 s), sin recorte de
